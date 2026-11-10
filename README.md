@@ -1,0 +1,157 @@
+# AuctionFloor — Render Port
+
+Open car-auction marketplace for **Cash 4 Cars C&B** (Charles & Brandi Morton),
+ported from the Muse fullstack artifact (`online-car-auctions`, v7) to a
+standard stack that runs on Render:
+
+- **Node 20 + Express** serving the React client (Vite + Tailwind)
+- **Postgres** via Drizzle (`pg-core`) — the original 9 SQLite migrations
+  converted to Postgres in `drizzle/0001`–`0009`
+- **Direct Stripe API** integration (no Muse agent delegation)
+- **Owner login** (email + password) instead of Muse viewer identity
+- Photos on disk under `UPLOADS_DIR` (S3-compatible storage is the
+  follow-up — see below)
+
+## What it does (all replicated from the original)
+
+- Anyone can list a car: year/make/model/trim, mileage, condition, title
+  status, location, description, photo upload (JPG/PNG/WebP/GIF ≤ 8 MB),
+  starting bid, optional reserve, 1–14 days. Listing is live immediately.
+- Anyone can bid (name + mobile + email required). Bids in the final
+  2 minutes extend the clock by 2 minutes (anti-sniping).
+- Tabs: Live now / Ending < 24h / Watchlist / Ended / All, plus search,
+  condition filter, and sort (ending soonest, price, newest). Detail pages
+  with specs, seller name only, and full bid history.
+- **Fees, exactly:** selling is FREE. Buyer fee 10% under $1,000, 5% at
+  $1,000+. Card processing fee 2.9% of (winning bid + buyer fee) + $0.30,
+  in cents: `round(subtotal_cents × 0.029) + 30`. Example: $800 win →
+  $80 buyer fee + $25.82 processing = **$905.82 due**. No sale, no fees.
+- On a win the buyer is auto-invoiced and pays by card on Stripe's hosted
+  checkout. The invoice counts as paid **only** when Stripe itself reports
+  `payment_status: "paid"`, session `complete`, and the exact invoice total
+  — verified by re-reading the Checkout Session from Stripe, and by the
+  `checkout.session.completed` webhook when configured. There is no
+  "I've paid" self-attestation button.
+- **Seller payout releases only after the invoice is paid AND both buyer
+  and seller confirm pickup** in the checkout.
+- **Delivery, quoted per trip:** either side requests delivery with an
+  address + notes; the owner quotes one price for the whole trip (no flat
+  rate, no per-mile rate); both sides agree to book it. The owner can
+  re-quote before both agree (clears earlier agreements); once both agree
+  the price is locked.
+- **Win messages:** buyer and seller each get the other's phone/email, plus
+  a copy in Messages gated by a per-sale 8-character access code (delivered
+  only inside the win text/email). The owner gets a win message + fee
+  notice. In-app copies are always written; email (SendGrid) and SMS
+  (Twilio) are sent when configured — if a provider key is absent, those
+  copies stay queued in-app (`sent_at` empty) and the sale is never blocked.
+- **Owner tab** (Messages → Owner — fees & settings): fee notices, delivery
+  requests + per-trip quotes, and owner contact settings. Gated by owner
+  login — see below.
+
+## Owner login (first run)
+
+The original site knew the owner automatically (Muse viewer identity). On
+the public site the owner signs in:
+
+1. Open the site → Messages → Owner — fees & settings.
+2. The first time, it offers **"Set up the owner account"** — enter an
+   email + password (8+ characters). This only works while no owner account
+   exists yet.
+3. After that, log in with that email + password. The session lasts 30 days.
+
+Owner contact (name / mobile / email for win + fee texts/emails) is saved
+separately in the same tab, exactly as before.
+
+## Environment variables
+
+Copy `.env.example` to `.env` for local dev. On Render, set them in the
+dashboard (Environment tab). **Never put a real key in code, in git, or
+in chat.**
+
+| Variable | Required | Notes |
+|---|---|---|
+| `DATABASE_URL` | yes | Render injects it from the Render Postgres service |
+| `PORT` | no | Render sets it; default 3000 |
+| `APP_URL` | no | Default `https://auction423.com`. Used for Stripe success/cancel return URLs — no `example.com` placeholders anywhere |
+| `STRIPE_SECRET_KEY` | for payments | Restricted key on the **live** Cash 4 Cars C&B account `acct_1UYs2oRrelUqumEN`, **Checkout Sessions: Write**. Create in Stripe dashboard → Developers → API keys → Create restricted key. Without it, checkout creation returns 503 and sales stay unpaid — nothing is charged by accident |
+| `STRIPE_WEBHOOK_SECRET` | no | Stripe dashboard → Developers → Webhooks, endpoint `https://auction423.com/api/stripe/webhook`, event `checkout.session.completed`. If unset, the webhook rejects requests; payment verification still works through the "check payment status" button |
+| `SESSION_SECRET` | yes | Any long random string (owner login sessions) |
+| `UPLOADS_DIR` | no | Default `./uploads`. **Note:** Render disk is ephemeral — see S3 note below |
+| `SENDGRID_API_KEY`, `EMAIL_FROM` | no | Email notifications. If absent, email copies queue in-app |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` | no | SMS notifications. If absent, SMS copies queue in-app |
+
+## Local development
+
+```bash
+npm install
+cp .env.example .env   # fill in DATABASE_URL (local Postgres) + SESSION_SECRET
+npm run build          # builds the React client into dist/
+npm start              # runs migrations, then serves on $PORT (default 3000)
+```
+
+Migrations run automatically on startup (and manually with
+`npm run migrate`). The smoke test needs a local Postgres:
+
+```bash
+# create the test database first:
+#   createdb auctionfloor_test   (user auctionfloor / password auctionfloor)
+DATABASE_URL=postgres://auctionfloor:auctionfloor@localhost:5432/auctionfloor_test npm run test:smoke
+```
+
+It exercises list → bid → force-end → finalize → fees → checkout →
+delivery quote/agree → pickup confirmations → payout gate, and asserts
+the payout does **not** release while the invoice is unpaid.
+
+## Deploy to Render ($13/month)
+
+1. **GitHub repo** — push this folder to a repo in Charles's GitHub
+   account (Render deploys from Git; auto-deploy on push).
+2. **Render account** — Charles creates it on his own device and adds his
+   payment method. Month-to-month, cancel anytime; compute is billed
+   prorated to the second.
+3. **New → Blueprint**, point it at the repo. `render.yaml` defines:
+   - Web Service `auctionfloor`, Starter **$7/mo** — build
+     `npm install && npm run build`, start `node server.js`
+   - Postgres `auctionfloor-db`, Basic **$6/mo**
+   - Total **$13/mo** on the Hobby workspace ($0).
+4. **Environment (Render dashboard → Environment)** — set the secrets
+   from the table above: `STRIPE_SECRET_KEY` (restricted key, Checkout
+   Sessions: Write, on `acct_1UYs2oRrelUqumEN`), `SESSION_SECRET`
+   (generate one), `STRIPE_WEBHOOK_SECRET` (optional), SendGrid/Twilio
+   keys (optional). `DATABASE_URL` and `APP_URL` come from the blueprint.
+5. **Custom domain** — Render → Settings → Custom Domains → add
+   `auction423.com`. Render shows a CNAME target
+   (`<service>.onrender.com`); add that CNAME record in **Namecheap**
+   (where `auction423.com` is registered — bought Nov 10, 2026 for
+   $12.28, expires Nov 10, 2027). Render provisions free SSL
+   automatically. `cash4carscb.com` is not involved at all.
+6. **Verify live before announcing** — create a test listing on the Render
+   URL, bid, end it, confirm the invoice + Stripe checkout flow, then
+   delete the test data.
+
+## What was NOT carried over from the Muse artifact
+
+- Muse viewer identity (`ctx.viewer.isOwner`) → owner email/password login.
+- Muse blob storage (`ctx.blobs`) → disk uploads under `UPLOADS_DIR`.
+- Agent-delegated Stripe/notification tasks (`ctx.agent.spawnTask`) →
+  direct Stripe API calls, SendGrid/Twilio, in-app message queue.
+- The `entries` placeholder table from migration 0001 (dropped in 0002
+  upstream; the Postgres 0001 is a no-op kept for history).
+- Watchlist is global (shared), exactly as in the original — there are no
+  bidder accounts in either version.
+
+## Known follow-ups (not blockers)
+
+- **Photo storage:** uploads live on Render's ephemeral disk, so a
+  redeploy can lose photos. The follow-up is S3-compatible object
+  storage (Render does not offer it natively; use an S3 provider and
+  point `UPLOADS_DIR`-style storage at it). Listing data itself lives
+  safely in Postgres.
+- **Stripe webhook:** optional but recommended — set
+  `STRIPE_WEBHOOK_SECRET` so paid invoices are marked the moment Stripe
+  completes checkout, without waiting for the buyer to tap "check payment
+  status".
+- **Email/SMS providers:** SendGrid + Twilio are wired in but optional.
+  Until keys are set, win/fee texts and emails queue in-app and the owner
+  can see them in Messages; the sale flow itself is unaffected.
