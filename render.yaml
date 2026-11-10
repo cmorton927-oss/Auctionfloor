@@ -24,4 +24,4 @@ services:
 
 databases:
   - name: auctionfloor-db
-    plan: basic
+    plan: basic-256mb
