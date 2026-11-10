@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: auctionfloor
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APP_URL
+        value: https://auction423.com
+      - key: DATABASE_URL
+        fromDatabase:
+          name: auctionfloor-db
+          property: connectionString
+      # Set these by hand in the Render dashboard (they are secrets):
+      #   STRIPE_SECRET_KEY  — restricted key on acct_1UYs2oRrelUqumEN,
+      #                         Checkout Sessions: Write
+      #   STRIPE_WEBHOOK_SECRET — optional, see README
+      #   SESSION_SECRET     — long random string (generate one)
+      #   SENDGRID_API_KEY / EMAIL_FROM — optional email provider
+      #   TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM — optional SMS
+
+databases:
+  - name: auctionfloor-db
+    plan: basic

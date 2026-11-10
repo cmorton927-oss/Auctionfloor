@@ -1,0 +1,64 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+/* Safe-area insets (notch / gesture bar) without the Hatch-only plugin. */
+.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+
+@theme {
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 14px;
+  --text-sm--line-height: 20px;
+  --text-base: 16px;
+  --text-base--line-height: 24px;
+  --text-lg: 18px;
+  --text-lg--line-height: 28px;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 32px;
+  --text-3xl: 30px;
+  --text-3xl--line-height: 36px;
+  --text-4xl: 36px;
+  --text-4xl--line-height: 40px;
+  --text-5xl: 48px;
+  --text-5xl--line-height: 52px;
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-body: "Barlow", system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: light dark;
+  --bg: #f4f1ea;
+  --surface: #fffdf8;
+  --surface2: #ece7db;
+  --text: #1b1a17;
+  --dim: #6f6a5e;
+  --border: #ddd6c6;
+  --accent: #b45309;
+  --accent-strong: #f59e0b;
+  --danger: #dc2626;
+  --radius: 14px;
+  --space-surface: var(--surface);
+  --space-surface-alt: var(--surface2);
+  --space-muted: var(--dim);
+  --space-border: var(--border);
+  --space-accent: var(--accent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111214;
+    --surface: #1c1d20;
+    --surface2: #26272b;
+    --text: #f2efe8;
+    --dim: #a39d90;
+    --border: #34353a;
+    --accent: #f59e0b;
+    --accent-strong: #fbbf24;
+  }
+}
+
+body { font-family: var(--font-body); }
+.font-display { font-family: var(--font-display); }
+.tabular { font-variant-numeric: tabular-nums; }
