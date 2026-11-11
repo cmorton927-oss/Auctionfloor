@@ -119,3 +119,12 @@ export const ownerSessions = pgTable("owner_sessions", {
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+export const alertSubscribers = pgTable("alert_subscribers", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  token: text("token").notNull().unique(), // per-recipient unsubscribe token
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  unsubscribedAt: timestamp("unsubscribed_at"),
+});

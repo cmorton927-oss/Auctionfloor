@@ -70,6 +70,18 @@ async function main() {
     const listingId = created.data.id;
     console.log("listing created:", listingId);
 
+    // 1b. Email alerts: subscribe, duplicate subscribe, invalid rejected,
+    //     bogus unsubscribe token shows the not-valid page.
+    const sub1 = await post("/api/subscribeAlerts", { email: "alert-test@example.com" });
+    eq(sub1.status, 200, "subscribeAlerts status");
+    const sub2 = await post("/api/subscribeAlerts", { email: "alert-test@example.com" });
+    eq(sub2.status, 200, "duplicate subscribe ok");
+    eq(sub2.data.alreadySubscribed, true, "duplicate flagged alreadySubscribed");
+    const subBad = await post("/api/subscribeAlerts", { email: "not-an-email" });
+    eq(subBad.status, 400, "invalid email rejected");
+    const unsubBad = await fetch(`${BASE}/api/unsubscribeAlerts?token=nope`);
+    eq(unsubBad.status, 200, "bogus unsubscribe token page");
+
     // 2. Bid below the minimum must fail; a valid bid must succeed.
     const low = await post("/api/placeBid", { listingId, bidderName: "Buyer", bidderPhone: "4235550101", bidderEmail: "buyer@example.com", amount: 399 });
     eq(low.status, 500, "low bid rejected");

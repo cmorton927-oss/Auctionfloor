@@ -85,6 +85,40 @@ function ListingCard({ listing, now, onOpen, onWatch }: { listing: Listing; now:
   );
 }
 
+function AlertSignup() {
+  const [email, setEmail] = useState("");
+  const [done, setDone] = useState(false);
+  const [err, setErr] = useState("");
+  const mut = useMutation({
+    mutationFn: (e: string) => api.subscribeAlerts({ email: e }),
+    onSuccess: () => { setDone(true); setErr(""); },
+    onError: (e: Error) => setErr(e.message || "Couldn't sign you up — try again."),
+  });
+  if (done) return (
+    <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-5 py-4">
+      <p className="font-display text-xl font-bold uppercase">You're on the list ✓</p>
+      <p className="text-sm text-[var(--dim)] mt-1">We'll email you the moment a new car is added to AuctionFloor. Unsubscribe anytime from the link in any alert.</p>
+    </div>
+  );
+  return (
+    <form
+      className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-5 py-4"
+      onSubmit={(e) => { e.preventDefault(); setErr(""); mut.mutate(email.trim()); }}
+    >
+      <p className="font-display text-xl font-bold uppercase">Never miss a new listing</p>
+      <p className="text-sm text-[var(--dim)] mt-1">Get an email the moment a car is added to the auction. No account, no spam — one email per new car.</p>
+      <div className="flex flex-col sm:flex-row gap-2 mt-3">
+        <label htmlFor="alert-email" className="sr-only">Email address for new-listing alerts</label>
+        <input id="alert-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" className="flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-base" />
+        <button type="submit" disabled={mut.isPending} className="px-6 py-2.5 rounded-xl bg-[var(--accent-strong)] text-black font-display text-lg font-bold uppercase disabled:opacity-60">
+          {mut.isPending ? "Signing up…" : "Email me new cars"}
+        </button>
+      </div>
+      {err && <p role="alert" className="text-sm text-[var(--danger)] mt-2">{err}</p>}
+    </form>
+  );
+}
+
 function DetailView({ id, now, onClose }: { id: number; now: number; onClose: () => void }) {
   const queryClient = useQueryClient();
   const detail = useQuery({ queryKey: ["auction", id], queryFn: () => api.getAuction({ id }), refetchInterval: 5000 });
@@ -928,6 +962,8 @@ export function App() {
                 </select>
               </div>
             </div>
+
+            <AlertSignup />
 
             {auctions.isPending ? <p className="py-16 text-center text-[var(--dim)]">Loading the floor…</p>
               : auctions.error ? <p className="py-16 text-center text-[var(--danger)]">Couldn't load auctions. <button type="button" className="underline" onClick={() => auctions.refetch()} aria-label="Retry loading auctions">Retry</button></p>

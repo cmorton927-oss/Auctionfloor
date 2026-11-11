@@ -49,6 +49,7 @@ standard stack that runs on Render:
   5-digit ZIP code when listing, and it must be within 250 miles of 37406
   (checked server-side from ZIP centroids; a listing right on the boundary can
   be off by a few miles). Outside the radius the listing is rejected.
+- **New-listing email alerts:** a signup box on the home page ("Never miss a new listing") takes just an email address — no account. Every new listing emails all active subscribers (car, starting bid, Buy Now, location, link) with a per-recipient unsubscribe link. Sending uses the existing SendGrid wiring (`SENDGRID_API_KEY` + `EMAIL_FROM` env vars); until those are set, alerts are skipped and the listing is never blocked. Migration 0014 added alert_subscribers.
 - **Buy Now:** a seller can set an optional Buy Now price when listing. While
   the auction is live, a buyer can end it early by paying that price (two-tap
   confirm in the listing view) — the sale then finalizes exactly like a won

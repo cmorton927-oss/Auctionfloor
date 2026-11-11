@@ -18,7 +18,7 @@ const TWILIO_FROM = process.env.TWILIO_FROM || "";
 export const emailConfigured = Boolean(SENDGRID_API_KEY && EMAIL_FROM);
 export const smsConfigured = Boolean(TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM);
 
-async function sendEmail(to, subject, body) {
+export async function sendEmail(to, subject, body) {
   if (!emailConfigured) return false;
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",

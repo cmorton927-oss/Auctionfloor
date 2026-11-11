@@ -25,6 +25,7 @@ import { buyerSellerOwnerEntries, getOwnerSettingsRow, notifySaleParties } from 
 import { createFirstOwner, loginOwner, logoutOwner, ownerCookieOptions, ownerExists, ownerFromRequest, OWNER_COOKIE } from "./auth.js";
 import { getStripe, retrieveCheckoutSession, stripeConfigured } from "./stripe.js";
 import { checkLocalRadius } from "./geo.js";
+import { notifyNewListing, subscribeAlert, unsubscribeAlert } from "./alerts.js";
 
 export const api = Router();
 
@@ -294,7 +295,24 @@ api.post("/createListing", asyncHandler(async (req, res) => {
     startingPrice: args.startingPrice, reservePrice: args.reservePrice > 0 ? args.reservePrice : null, buyNowPrice: args.buyNowPrice > 0 ? args.buyNowPrice : null, endsAt,
   }).returning({ id: schema.listings.id });
   if (!inserted[0]) throw new Error("Failed to create listing");
+  // New-listing email alerts go out in the background; a failure or a
+  // missing email setup never blocks the listing.
+  notifyNewListing({ ...args, id: inserted[0].id, trim: args.trim.trim() || null, location: args.location.trim(), zipCode: args.zipCode }).catch(() => {});
   res.json({ id: inserted[0].id });
+}));
+
+// New-listing email alerts: subscribe with just an email address, and
+// unsubscribe from the link in any alert email.
+api.post("/subscribeAlerts", asyncHandler(async (req, res) => {
+  const args = parseBody(z.object({ email: z.string().trim().email("Enter a valid email address.").max(160) }), req.body);
+  res.json(await subscribeAlert(args.email));
+}));
+
+api.get("/unsubscribeAlerts", asyncHandler(async (req, res) => {
+  const ok = await unsubscribeAlert(req.query.token);
+  res.type("html").send(ok
+    ? "<!doctype html><title>Unsubscribed — AuctionFloor</title><body style=\"font-family:sans-serif;text-align:center;padding:80px 20px\"><h1>You're unsubscribed.</h1><p>You won't get new-listing emails from AuctionFloor anymore.</p><p><a href=\"/\">Back to AuctionFloor</a></p></body>"
+    : "<!doctype html><title>Link not found — AuctionFloor</title><body style=\"font-family:sans-serif;text-align:center;padding:80px 20px\"><h1>That link isn't valid anymore.</h1><p>You may already be unsubscribed. <a href=\"/\">Back to AuctionFloor</a></p></body>");
 }));
 
 api.post("/placeBid", asyncHandler(async (req, res) => {

@@ -55,4 +55,5 @@ export const api = {
   ownerLogin: (args: { email: string; password: string }) =>
     call("owner/login", args) as Promise<{ ok: true; email: string }>,
   ownerLogout: () => call("owner/logout", {}) as Promise<{ ok: true }>,
+  subscribeAlerts: (args: { email: string }) => call("subscribeAlerts", args) as Promise<{ ok: true; alreadySubscribed: boolean }>,
 };
