@@ -24,6 +24,7 @@ import { applyVerifiedStripePayment, createCheckoutForSale, finalizeEndedAuction
 import { buyerSellerOwnerEntries, getOwnerSettingsRow, notifySaleParties } from "./notify.js";
 import { createFirstOwner, loginOwner, logoutOwner, ownerCookieOptions, ownerExists, ownerFromRequest, OWNER_COOKIE } from "./auth.js";
 import { getStripe, retrieveCheckoutSession, stripeConfigured } from "./stripe.js";
+import { checkLocalRadius } from "./geo.js";
 
 export const api = Router();
 
@@ -77,6 +78,7 @@ async function toListingOut(row, bidRows, watchedIds, sale) {
     condition: row.condition,
     titleStatus: row.titleStatus,
     location: row.location,
+    zipCode: row.zipCode ?? null,
     description: row.description,
     imageUrl: row.imagePath ? `/uploads/${row.imagePath}` : (row.imageUrl ?? null),
     sellerName: row.privateSeller ? "Private seller" : row.sellerName,
@@ -252,6 +254,7 @@ api.post("/createListing", asyncHandler(async (req, res) => {
     mileage: z.number().int().min(0).max(2000000),
     condition: z.enum(CONDITIONS), titleStatus: z.enum(TITLES),
     location: z.string().min(1).max(120), description: z.string().min(1).max(4000),
+    zipCode: z.string().regex(/^\d{5}$/, "Enter a 5-digit ZIP code"),
     photo: z.object({ dataBase64: z.string().min(1).max(15_000_000), mimeType: z.enum(["image/jpeg", "image/png", "image/webp", "image/gif"]) }).nullable().default(null),
     sellerName: z.string().min(1).max(80), sellerPhone: phoneField, sellerEmail: emailField,
     privateSeller: z.boolean().default(false),
@@ -278,10 +281,12 @@ api.post("/createListing", asyncHandler(async (req, res) => {
   if (args.buyNowPrice > 0 && args.buyNowPrice < args.startingPrice) {
     throw new Error("The Buy Now price can't be lower than the starting bid.");
   }
+  const radius = checkLocalRadius(args.zipCode);
+  if (!radius.ok) throw new Error(radius.reason);
   const inserted = await db.insert(schema.listings).values({
     year: args.year, make: args.make.trim(), model: args.model.trim(), trim: args.trim.trim() || null,
     mileage: args.mileage, condition: args.condition, titleStatus: args.titleStatus,
-    location: args.location.trim(), description: args.description.trim(),
+    location: args.location.trim(), zipCode: args.zipCode, description: args.description.trim(),
     imageUrl: null, imagePath,
     sellerName: args.sellerName.trim(), sellerPhone: args.sellerPhone.trim(), sellerEmail: args.sellerEmail.trim(),
     privateSeller: args.privateSeller,

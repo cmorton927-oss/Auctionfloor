@@ -45,6 +45,10 @@ standard stack that runs on Render:
   notice. In-app copies are always written; email (SendGrid) and SMS
   (Twilio) are sent when configured — if a provider key is absent, those
   copies stay queued in-app (`sent_at` empty) and the sale is never blocked.
+- **Local only — 250-mile radius of Chattanooga 37406:** a seller must enter a
+  5-digit ZIP code when listing, and it must be within 250 miles of 37406
+  (checked server-side from ZIP centroids; a listing right on the boundary can
+  be off by a few miles). Outside the radius the listing is rejected.
 - **Buy Now:** a seller can set an optional Buy Now price when listing. While
   the auction is live, a buyer can end it early by paying that price (two-tap
   confirm in the listing view) — the sale then finalizes exactly like a won

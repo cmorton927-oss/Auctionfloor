@@ -149,7 +149,7 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="font-display text-4xl font-bold uppercase leading-none">{listing.year} {listing.make} {listing.model}{listing.trim ? ` ${listing.trim}` : ""}</h2>
-              <p className="text-sm text-[var(--dim)] mt-2">{listing.location} · Seller: {listing.sellerName}</p>
+              <p className="text-sm text-[var(--dim)] mt-2">{listing.location}{listing.zipCode ? ` ${listing.zipCode}` : ""} · Seller: {listing.sellerName}</p>
             </div>
             <button type="button" onClick={() => watchMut.mutate()} aria-label={listing.isWatched ? "Remove from watchlist" : "Add to watchlist"} className={`px-3 py-1.5 rounded-full text-sm font-semibold border ${listing.isWatched ? "bg-[var(--accent-strong)] text-black border-transparent" : "border-[var(--border)]"}`}>
               {listing.isWatched ? "★ Watching" : "☆ Watch"}
@@ -287,7 +287,7 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
 
 function SellForm({ onDone }: { onDone: (id: number) => void }) {
   const queryClient = useQueryClient();
-  const [f, setF] = useState({ year: new Date().getFullYear().toString(), make: "", model: "", trim: "", mileage: "", condition: CONDITIONS[0] as string, titleStatus: TITLES[0] as string, location: "", description: "", sellerName: "", sellerPhone: "", sellerEmail: "", startingPrice: "", reservePrice: "", buyNowPrice: "", duration: "72", privateSeller: false, noMechanicalIssues: false });
+  const [f, setF] = useState({ year: new Date().getFullYear().toString(), make: "", model: "", trim: "", mileage: "", condition: CONDITIONS[0] as string, titleStatus: TITLES[0] as string, location: "", zipCode: "", description: "", sellerName: "", sellerPhone: "", sellerEmail: "", startingPrice: "", reservePrice: "", buyNowPrice: "", duration: "72", privateSeller: false, noMechanicalIssues: false });
   const [photo, setPhoto] = useState<{ dataBase64: string; mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; preview: string; name: string } | null>(null);
   const [photoErr, setPhotoErr] = useState("");
   const [err, setErr] = useState("");
@@ -311,7 +311,7 @@ function SellForm({ onDone }: { onDone: (id: number) => void }) {
     mutationFn: () => api.createListing({
       year: Number(f.year), make: f.make, model: f.model, trim: f.trim, mileage: Number(f.mileage),
       condition: f.condition as typeof CONDITIONS[number], titleStatus: f.titleStatus as typeof TITLES[number],
-      location: f.location, description: f.description,
+      location: f.location, zipCode: f.zipCode, description: f.description,
       photo: photo ? { dataBase64: photo.dataBase64, mimeType: photo.mimeType } : null,
       sellerName: f.sellerName, sellerPhone: f.sellerPhone, sellerEmail: f.sellerEmail,
       privateSeller: f.privateSeller,
@@ -328,7 +328,7 @@ function SellForm({ onDone }: { onDone: (id: number) => void }) {
   return (
     <form onSubmit={(e: FormEvent) => { e.preventDefault(); setErr(""); mut.mutate(); }} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-6 pb-6">
       <h2 className="font-display text-3xl font-bold uppercase">List a car for auction</h2>
-      <p className="text-sm text-[var(--dim)] mt-1">Anyone can list. It goes live the moment you submit, and bidding stays open until the clock runs out. Your mobile phone and email are required — when your car sells, you and the buyer instantly get a text and an email with each other's contact info. Selling is free — there is no seller fee. The buyer is invoiced the winning bid plus their buyer fee and an administrative fee (2.9% of the subtotal + $0.30), payable by card through Stripe (live account — real card payments), and you get paid once Stripe verifies the invoice payment and both sides confirm the pickup.</p>
+      <p className="text-sm text-[var(--dim)] mt-1">Anyone can list. It goes live the moment you submit, and bidding stays open until the clock runs out. Your mobile phone and email are required — when your car sells, you and the buyer instantly get a text and an email with each other's contact info. Selling is free — there is no seller fee. The buyer is invoiced the winning bid plus their buyer fee and an administrative fee (2.9% of the subtotal + $0.30), payable by card through Stripe (live account — real card payments), and you get paid once Stripe verifies the invoice payment and both sides confirm the pickup. AuctionFloor is local to the Chattanooga (423) area — your car must be within 250 miles of ZIP 37406.</p>
       <div className="grid sm:grid-cols-3 gap-4 mt-5">
         <div><label htmlFor="sf-year" className={labelCls}>Year</label><input id="sf-year" type="number" required min={1900} max={2030} value={f.year} onChange={set("year")} className={inputCls} /></div>
         <div><label htmlFor="sf-make" className={labelCls}>Make</label><input id="sf-make" required value={f.make} onChange={set("make")} placeholder="Ford" className={inputCls} /></div>
@@ -336,6 +336,7 @@ function SellForm({ onDone }: { onDone: (id: number) => void }) {
         <div><label htmlFor="sf-trim" className={labelCls}>Trim (optional)</label><input id="sf-trim" value={f.trim} onChange={set("trim")} placeholder="XLT, Sport…" className={inputCls} /></div>
         <div><label htmlFor="sf-mileage" className={labelCls}>Mileage</label><input id="sf-mileage" type="number" required min={0} value={f.mileage} onChange={set("mileage")} placeholder="145000" className={inputCls} /></div>
         <div><label htmlFor="sf-location" className={labelCls}>Location (city, state)</label><input id="sf-location" required value={f.location} onChange={set("location")} placeholder="Chattanooga, TN" className={inputCls} /></div>
+        <div><label htmlFor="sf-zip" className={labelCls}>ZIP code (required)</label><input id="sf-zip" required inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={f.zipCode} onChange={set("zipCode")} placeholder="37406" className={inputCls} /><p className="text-xs text-[var(--dim)] mt-1">Must be within 250 miles of Chattanooga, TN 37406.</p></div>
         <div><label htmlFor="sf-condition" className={labelCls}>Condition</label><select id="sf-condition" value={f.condition} onChange={set("condition")} className={inputCls}>{CONDITIONS.map((c) => <option key={c}>{c}</option>)}</select></div>
         {f.condition === "Runs & drives" && (
           <div className="sm:col-span-3 flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5">

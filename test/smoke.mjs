@@ -50,9 +50,18 @@ async function main() {
     console.log("health OK");
 
     // 1. Create a listing (no photo in the smoke test).
+    // ZIP outside the 250-mile radius of 37406 must be rejected.
+    const far = await post("/api/createListing", {
+      year: 2012, make: "Jaguar", model: "XJ", trim: "Base", mileage: 120000,
+      condition: "Not running", titleStatus: "Clean title", location: "Beverly Hills, CA", zipCode: "90210",
+      description: "Smoke-test car. Does not run.", photo: null,
+      sellerName: "Test Seller", sellerPhone: "4235550100", sellerEmail: "seller@example.com",
+      startingPrice: 400, reservePrice: 0, durationHours: 1,
+    });
+    eq(far.status, 500, "out-of-radius ZIP rejected");
     const created = await post("/api/createListing", {
       year: 2012, make: "Jaguar", model: "XJ", trim: "Base", mileage: 120000,
-      condition: "Not running", titleStatus: "Clean title", location: "Chattanooga, TN",
+      condition: "Not running", titleStatus: "Clean title", location: "Chattanooga, TN", zipCode: "37406",
       description: "Smoke-test car. Does not run.", photo: null,
       sellerName: "Test Seller", sellerPhone: "4235550100", sellerEmail: "seller@example.com",
       startingPrice: 400, reservePrice: 0, durationHours: 1,

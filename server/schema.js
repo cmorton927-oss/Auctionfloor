@@ -14,6 +14,7 @@ export const listings = pgTable("listings", {
   condition: text("condition").notNull(), // Runs & drives | Runs, needs work | Not running | Parts / salvage
   titleStatus: text("title_status").notNull(), // Clean title | Rebuilt / salvage title | No title — bill of sale | Lien / other
   location: text("location").notNull(),
+  zipCode: text("zip_code"), // mandatory seller ZIP since migration 0013; must be within 250 miles of 37406
   description: text("description").notNull(),
   imageUrl: text("image_url"),
   imagePath: text("image_path"), // local file under UPLOADS_DIR, served at /uploads/<name>
