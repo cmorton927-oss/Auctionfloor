@@ -32,6 +32,11 @@ export async function sendEmail(to, subject, body) {
       content: [{ type: "text/plain", value: body }],
     }),
   });
+  if (!res.ok) {
+    let detail = "";
+    try { detail = await res.text(); } catch { /* ignore */ }
+    console.error(`SendGrid send failed: HTTP ${res.status} to ${to}: ${detail.slice(0, 500)}`);
+  }
   return res.ok;
 }
 
