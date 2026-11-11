@@ -81,6 +81,7 @@ async function toListingOut(row, bidRows, watchedIds, sale) {
     imageUrl: row.imagePath ? `/uploads/${row.imagePath}` : (row.imageUrl ?? null),
     sellerName: row.privateSeller ? "Private seller" : row.sellerName,
     privateSeller: row.privateSeller ?? false,
+    noMechanicalIssuesConfirmed: row.noMechanicalIssuesConfirmed ?? false,
     startingPrice: row.startingPrice,
     reservePrice: row.reservePrice ?? null,
     reserveMet: row.reservePrice == null ? true : (currentBid != null && currentBid >= row.reservePrice),
@@ -253,6 +254,7 @@ api.post("/createListing", asyncHandler(async (req, res) => {
     photo: z.object({ dataBase64: z.string().min(1).max(15_000_000), mimeType: z.enum(["image/jpeg", "image/png", "image/webp", "image/gif"]) }).nullable().default(null),
     sellerName: z.string().min(1).max(80), sellerPhone: phoneField, sellerEmail: emailField,
     privateSeller: z.boolean().default(false),
+    noMechanicalIssuesConfirmed: z.boolean().default(false),
     startingPrice: z.number().int().min(1).max(10000000),
     reservePrice: z.number().int().min(0).max(10000000).default(0),
     durationHours: z.number().int().min(1).max(24 * 14),
@@ -268,6 +270,9 @@ api.post("/createListing", asyncHandler(async (req, res) => {
     imagePath = filename;
   }
   const endsAt = new Date(Date.now() + args.durationHours * 3600 * 1000);
+  if (args.condition === "Runs & drives" && !args.noMechanicalIssuesConfirmed) {
+    throw new Error("A vehicle listed as Runs & drives needs the seller to confirm it has no mechanical issues.");
+  }
   const inserted = await db.insert(schema.listings).values({
     year: args.year, make: args.make.trim(), model: args.model.trim(), trim: args.trim.trim() || null,
     mileage: args.mileage, condition: args.condition, titleStatus: args.titleStatus,
@@ -275,6 +280,7 @@ api.post("/createListing", asyncHandler(async (req, res) => {
     imageUrl: null, imagePath,
     sellerName: args.sellerName.trim(), sellerPhone: args.sellerPhone.trim(), sellerEmail: args.sellerEmail.trim(),
     privateSeller: args.privateSeller,
+    noMechanicalIssuesConfirmed: args.noMechanicalIssuesConfirmed,
     startingPrice: args.startingPrice, reservePrice: args.reservePrice > 0 ? args.reservePrice : null, endsAt,
   }).returning({ id: schema.listings.id });
   if (!inserted[0]) throw new Error("Failed to create listing");

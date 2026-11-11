@@ -21,6 +21,7 @@ export const listings = pgTable("listings", {
   sellerPhone: text("seller_phone"),
   sellerEmail: text("seller_email"),
   privateSeller: boolean("private_seller").notNull().default(false), // when true, public views show "Private seller"; only the winning buyer learns the real name
+  noMechanicalIssuesConfirmed: boolean("no_mechanical_issues_confirmed").notNull().default(false), // seller confirms no mechanical issues; required when condition is "Runs & drives"
   startingPrice: integer("starting_price").notNull(),
   reservePrice: integer("reserve_price"),
   endsAt: timestamp("ends_at").notNull(),

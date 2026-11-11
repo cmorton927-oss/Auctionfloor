@@ -148,6 +148,7 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
           </div>
 
           <p className="mt-5 text-[15px] leading-relaxed whitespace-pre-wrap">{listing.description}</p>
+          {listing.noMechanicalIssuesConfirmed && <p className="mt-3 text-sm font-semibold">✓ Seller confirmed: no mechanical issues.</p>}
 
           <div className="mt-6 border-t border-[var(--border)] pt-5 flex flex-wrap gap-6 items-end justify-between">
             <div>
@@ -249,7 +250,7 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
 
 function SellForm({ onDone }: { onDone: (id: number) => void }) {
   const queryClient = useQueryClient();
-  const [f, setF] = useState({ year: new Date().getFullYear().toString(), make: "", model: "", trim: "", mileage: "", condition: CONDITIONS[0] as string, titleStatus: TITLES[0] as string, location: "", description: "", sellerName: "", sellerPhone: "", sellerEmail: "", startingPrice: "", reservePrice: "", duration: "72", privateSeller: false });
+  const [f, setF] = useState({ year: new Date().getFullYear().toString(), make: "", model: "", trim: "", mileage: "", condition: CONDITIONS[0] as string, titleStatus: TITLES[0] as string, location: "", description: "", sellerName: "", sellerPhone: "", sellerEmail: "", startingPrice: "", reservePrice: "", duration: "72", privateSeller: false, noMechanicalIssues: false });
   const [photo, setPhoto] = useState<{ dataBase64: string; mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; preview: string; name: string } | null>(null);
   const [photoErr, setPhotoErr] = useState("");
   const [err, setErr] = useState("");
@@ -277,6 +278,7 @@ function SellForm({ onDone }: { onDone: (id: number) => void }) {
       photo: photo ? { dataBase64: photo.dataBase64, mimeType: photo.mimeType } : null,
       sellerName: f.sellerName, sellerPhone: f.sellerPhone, sellerEmail: f.sellerEmail,
       privateSeller: f.privateSeller,
+      noMechanicalIssuesConfirmed: f.noMechanicalIssues,
       startingPrice: Number(f.startingPrice), reservePrice: f.reservePrice ? Number(f.reservePrice) : 0, durationHours: Number(f.duration),
     }),
     onSuccess: (r) => { queryClient.invalidateQueries({ queryKey: ["auctions"] }); onDone(r.id); },
@@ -298,6 +300,15 @@ function SellForm({ onDone }: { onDone: (id: number) => void }) {
         <div><label htmlFor="sf-mileage" className={labelCls}>Mileage</label><input id="sf-mileage" type="number" required min={0} value={f.mileage} onChange={set("mileage")} placeholder="145000" className={inputCls} /></div>
         <div><label htmlFor="sf-location" className={labelCls}>Location (city, state)</label><input id="sf-location" required value={f.location} onChange={set("location")} placeholder="Chattanooga, TN" className={inputCls} /></div>
         <div><label htmlFor="sf-condition" className={labelCls}>Condition</label><select id="sf-condition" value={f.condition} onChange={set("condition")} className={inputCls}>{CONDITIONS.map((c) => <option key={c}>{c}</option>)}</select></div>
+        {f.condition === "Runs & drives" && (
+          <div className="sm:col-span-3 flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5">
+            <input id="sf-no-mech" type="checkbox" required checked={f.noMechanicalIssues} onChange={(e) => setF((s) => ({ ...s, noMechanicalIssues: e.target.checked }))} className="mt-1 h-4 w-4 shrink-0 accent-black" />
+            <label htmlFor="sf-no-mech" className="text-sm">
+              <span className="block font-semibold">I confirm this vehicle has no mechanical issues <span className="text-[var(--danger)]">(required)</span></span>
+              <span className="block text-xs text-[var(--dim)] mt-0.5">Required because you listed it as Runs &amp; drives. If it has any mechanical problems, pick "Runs, needs work" instead and describe them.</span>
+            </label>
+          </div>
+        )}
         <div><label htmlFor="sf-title" className={labelCls}>Title status</label><select id="sf-title" value={f.titleStatus} onChange={set("titleStatus")} className={inputCls}>{TITLES.map((t) => <option key={t}>{t}</option>)}</select></div>
         <div><label htmlFor="sf-duration" className={labelCls}>Auction length</label><select id="sf-duration" value={f.duration} onChange={set("duration")} className={inputCls}><option value="24">1 day</option><option value="48">2 days</option><option value="72">3 days</option><option value="120">5 days</option><option value="168">7 days</option><option value="336">14 days</option></select></div>
         <div><label htmlFor="sf-start" className={labelCls}>Starting bid ($)</label><input id="sf-start" type="number" required min={1} value={f.startingPrice} onChange={set("startingPrice")} placeholder="500" className={inputCls} /></div>
