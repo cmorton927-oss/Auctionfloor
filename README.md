@@ -45,6 +45,13 @@ standard stack that runs on Render:
   notice. In-app copies are always written; email (SendGrid) and SMS
   (Twilio) are sent when configured — if a provider key is absent, those
   copies stay queued in-app (`sent_at` empty) and the sale is never blocked.
+- **Buy Now:** a seller can set an optional Buy Now price when listing. While
+  the auction is live, a buyer can end it early by paying that price (two-tap
+  confirm in the listing view) — the sale then finalizes exactly like a won
+  bid: invoice + buyer fee + administrative fee, Stripe checkout, pickup
+  confirmations before the seller is paid. If bidding has already passed the
+  Buy Now price, the button disappears. Buy Now also clears the reserve: the
+  asking price is the seller's explicit sell-now price.
 - **Seller privacy toggle:** on the list-a-car form, "Stay private during the
   auction" shows the listing as "Private seller" instead of the seller's name.
   The seller's real name and contact info are still collected and still go to

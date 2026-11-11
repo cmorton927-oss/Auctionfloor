@@ -24,6 +24,7 @@ export const listings = pgTable("listings", {
   noMechanicalIssuesConfirmed: boolean("no_mechanical_issues_confirmed").notNull().default(false), // seller confirms no mechanical issues; required when condition is "Runs & drives"
   startingPrice: integer("starting_price").notNull(),
   reservePrice: integer("reserve_price"),
+  buyNowPrice: integer("buy_now_price"), // optional seller-set sell-now price; a buyer paying it ends the auction early
   endsAt: timestamp("ends_at").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

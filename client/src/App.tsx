@@ -70,6 +70,7 @@ function ListingCard({ listing, now, onOpen, onWatch }: { listing: Listing; now:
             <p className="text-[11px] uppercase tracking-widest text-[var(--dim)]">{listing.currentBid != null ? "Current bid" : "Starting bid"}</p>
             <p className="font-display text-3xl font-bold tabular leading-none">{money(price)}</p>
             <p className="text-xs text-[var(--dim)] mt-1">{listing.bidCount} bid{listing.bidCount === 1 ? "" : "s"}{listing.reservePrice != null ? (listing.reserveMet ? " · Reserve met" : " · Reserve not met") : " · No reserve"}</p>
+            {!listing.isEnded && listing.buyNowPrice != null && (listing.currentBid == null || listing.buyNowPrice > listing.currentBid) && <p className="text-xs font-semibold mt-1">Buy Now {money(listing.buyNowPrice)}</p>}
           </div>
           <div className={`text-right ${cd.ended ? "text-[var(--dim)]" : cd.urgent ? "text-[var(--danger)]" : ""}`}>
             <p className="text-[11px] uppercase tracking-widest">{cd.ended ? "Auction" : "Time left"}</p>
@@ -109,6 +110,20 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
   const watchMut = useMutation({
     mutationFn: () => api.toggleWatch({ listingId: id }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["auction", id] }); queryClient.invalidateQueries({ queryKey: ["auctions"] }); },
+  });
+  const [confirmBuyNow, setConfirmBuyNow] = useState(false);
+  const buyNowMut = useMutation({
+    mutationFn: () => api.buyNow({ listingId: id, buyerName: bidderName.trim(), buyerPhone: bidderPhone.trim(), bidderEmail: bidderEmail.trim() }),
+    onSuccess: (r) => {
+      localStorage.setItem("bidderName", bidderName.trim());
+      localStorage.setItem("bidderPhone", bidderPhone.trim());
+      localStorage.setItem("bidderEmail", bidderEmail.trim());
+      setConfirmBuyNow(false);
+      setMsg({ kind: "ok", text: `You bought it for ${money(r.amount)}! Your invoice is on its way by text and email — pay it by card on Stripe. Your Messages access code is ${r.accessToken ?? "in your win message"}.` });
+      queryClient.invalidateQueries({ queryKey: ["auction", id] });
+      queryClient.invalidateQueries({ queryKey: ["auctions"] });
+    },
+    onError: (e) => { setConfirmBuyNow(false); setMsg({ kind: "err", text: e instanceof Error ? e.message : "Buy Now failed — try again or place a bid." }); },
   });
   const deleteMut = useMutation({
     mutationFn: () => api.deleteListing({ id }),
@@ -182,6 +197,7 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
               )}
             </div>
           ) : (
+            <>
             <form className="mt-5" onSubmit={(e: FormEvent) => { e.preventDefault(); setMsg(null); bidMut.mutate(); }}>
               <div className="grid sm:grid-cols-3 gap-3">
                 <div>
@@ -215,6 +231,27 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
               </div>
               {msg && <p role="status" className={`mt-3 text-sm font-semibold ${msg.kind === "ok" ? "text-green-600" : "text-[var(--danger)]"}`}>{msg.text}</p>}
             </form>
+            {listing.buyNowPrice != null && (listing.currentBid == null || listing.buyNowPrice > listing.currentBid) && (
+              <div className="mt-5 bg-[var(--surface2)] rounded-xl p-4">
+                <p className="font-display text-2xl font-semibold uppercase">Buy Now — {money(listing.buyNowPrice)}</p>
+                <p className="text-sm text-[var(--dim)] mt-1">Skip the bidding and end the auction now at the seller's asking price. You'll be invoiced {moneyCents((listing.buyNowPrice + buyerFeeFor(listing.buyNowPrice)) * 100 + adminFeeCentsFor(listing.buyNowPrice + buyerFeeFor(listing.buyNowPrice)))} total ({money(listing.buyNowPrice)} + {money(buyerFeeFor(listing.buyNowPrice))} buyer fee + {moneyCents(adminFeeCentsFor(listing.buyNowPrice + buyerFeeFor(listing.buyNowPrice)))} administrative fee), payable by card through Stripe — same as winning a bid. Fill in your name, phone, and email above first.</p>
+                <button
+                  type="button"
+                  disabled={buyNowMut.isPending}
+                  onClick={() => {
+                    if (!bidderName.trim() || !bidderPhone.trim() || !bidderEmail.trim()) { setMsg({ kind: "err", text: "Fill in your name, mobile phone, and email above first — the seller needs them to reach you." }); return; }
+                    if (!confirmBuyNow) { setConfirmBuyNow(true); return; }
+                    setMsg(null); buyNowMut.mutate();
+                  }}
+                  className="mt-3 w-full sm:w-auto px-8 py-3 rounded-xl bg-[var(--accent-strong)] text-black font-display text-xl font-bold uppercase tracking-wide disabled:opacity-50"
+                  aria-label={`Buy now for ${money(listing.buyNowPrice)}`}
+                >
+                  {buyNowMut.isPending ? "Buying…" : confirmBuyNow ? `Tap again to confirm — buy for ${money(listing.buyNowPrice)}` : `Buy Now for ${money(listing.buyNowPrice)}`}
+                </button>
+                {confirmBuyNow && <p className="text-xs text-[var(--dim)] mt-2">This ends the auction immediately and invoices you the total above. Bidding stops.</p>}
+              </div>
+            )}
+            </>
           )}
 
           <div className="mt-7">
@@ -250,7 +287,7 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
 
 function SellForm({ onDone }: { onDone: (id: number) => void }) {
   const queryClient = useQueryClient();
-  const [f, setF] = useState({ year: new Date().getFullYear().toString(), make: "", model: "", trim: "", mileage: "", condition: CONDITIONS[0] as string, titleStatus: TITLES[0] as string, location: "", description: "", sellerName: "", sellerPhone: "", sellerEmail: "", startingPrice: "", reservePrice: "", duration: "72", privateSeller: false, noMechanicalIssues: false });
+  const [f, setF] = useState({ year: new Date().getFullYear().toString(), make: "", model: "", trim: "", mileage: "", condition: CONDITIONS[0] as string, titleStatus: TITLES[0] as string, location: "", description: "", sellerName: "", sellerPhone: "", sellerEmail: "", startingPrice: "", reservePrice: "", buyNowPrice: "", duration: "72", privateSeller: false, noMechanicalIssues: false });
   const [photo, setPhoto] = useState<{ dataBase64: string; mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; preview: string; name: string } | null>(null);
   const [photoErr, setPhotoErr] = useState("");
   const [err, setErr] = useState("");
@@ -279,7 +316,7 @@ function SellForm({ onDone }: { onDone: (id: number) => void }) {
       sellerName: f.sellerName, sellerPhone: f.sellerPhone, sellerEmail: f.sellerEmail,
       privateSeller: f.privateSeller,
       noMechanicalIssuesConfirmed: f.noMechanicalIssues,
-      startingPrice: Number(f.startingPrice), reservePrice: f.reservePrice ? Number(f.reservePrice) : 0, durationHours: Number(f.duration),
+      startingPrice: Number(f.startingPrice), reservePrice: f.reservePrice ? Number(f.reservePrice) : 0, buyNowPrice: f.buyNowPrice ? Number(f.buyNowPrice) : 0, durationHours: Number(f.duration),
     }),
     onSuccess: (r) => { queryClient.invalidateQueries({ queryKey: ["auctions"] }); onDone(r.id); },
     onError: (e) => setErr(e instanceof Error ? e.message : "Couldn't create the listing — check the fields and try again."),
@@ -313,6 +350,7 @@ function SellForm({ onDone }: { onDone: (id: number) => void }) {
         <div><label htmlFor="sf-duration" className={labelCls}>Auction length</label><select id="sf-duration" value={f.duration} onChange={set("duration")} className={inputCls}><option value="24">1 day</option><option value="48">2 days</option><option value="72">3 days</option><option value="120">5 days</option><option value="168">7 days</option><option value="336">14 days</option></select></div>
         <div><label htmlFor="sf-start" className={labelCls}>Starting bid ($)</label><input id="sf-start" type="number" required min={1} value={f.startingPrice} onChange={set("startingPrice")} placeholder="500" className={inputCls} /></div>
         <div><label htmlFor="sf-reserve" className={labelCls}>Reserve price ($) — optional</label><input id="sf-reserve" type="number" min={0} value={f.reservePrice} onChange={set("reservePrice")} placeholder="Leave blank for no reserve" className={inputCls} /></div>
+        <div><label htmlFor="sf-buynow" className={labelCls}>Buy Now price ($) — optional</label><input id="sf-buynow" type="number" min={0} value={f.buyNowPrice} onChange={set("buyNowPrice")} placeholder="Leave blank for auction only" className={inputCls} /><p className="text-xs text-[var(--dim)] mt-1">If set, any buyer can end the auction early by paying this price. Must be at least the starting bid.</p></div>
         <div><label htmlFor="sf-seller" className={labelCls}>Your name (seller)</label><input id="sf-seller" required value={f.sellerName} onChange={set("sellerName")} placeholder={f.privateSeller ? "Only the winning buyer will see this" : "Shown on the listing"} className={inputCls} /></div>
         <div className="sm:col-span-3 flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5">
           <button type="button" role="switch" aria-checked={f.privateSeller} aria-label="Stay private during the auction" onClick={() => setF((s) => ({ ...s, privateSeller: !s.privateSeller }))} className={`mt-0.5 shrink-0 w-11 h-6 rounded-full relative transition-colors ${f.privateSeller ? "bg-[var(--accent-strong)]" : "bg-[var(--border)]"}`}>
@@ -930,7 +968,7 @@ export function App() {
               )}
 
             <footer className="mt-10 text-sm text-[var(--dim)] leading-relaxed border-t border-[var(--border)] pt-4 pb-6">
-              <p><strong className="text-[var(--text)]">How it works:</strong> anyone lists a car with a starting bid and a clock. Highest bid when the clock runs out wins (reserve must be met if the seller set one). Bids in the final 2 minutes extend the auction by 2 minutes so nobody gets sniped. Contact info — mobile phone and email — is required to list and to bid: the moment an auction is won, the buyer is invoiced by text and email, buyer and seller get each other's contact info, and the site owner gets the win and fee message the same way. The buyer pays the invoice by card on Stripe's secure checkout page, and the invoice counts as paid only once Stripe verifies it; when the car is picked up, both buyer and seller confirm the pickup in the checkout under Messages — and that's when the seller gets paid. Prefer delivery? Either side can ask the site owner to arrange delivery from seller to buyer from the same checkout. Delivery is priced per trip — no flat rate and no per-mile rate: the owner personally quotes the cost for the trip from the pickup and delivery addresses and notes entered, and that quoted price is shown to both buyer and seller in the checkout before either side agrees to it.</p>
+              <p><strong className="text-[var(--text)]">How it works:</strong> anyone lists a car with a starting bid and a clock. Highest bid when the clock runs out wins (reserve must be met if the seller set one). If the seller set a Buy Now price, any buyer can end the auction early by paying it — same invoice, buyer fee, and administrative fee as winning a bid. Bids in the final 2 minutes extend the auction by 2 minutes so nobody gets sniped. Contact info — mobile phone and email — is required to list and to bid: the moment an auction is won, the buyer is invoiced by text and email, buyer and seller get each other's contact info, and the site owner gets the win and fee message the same way. The buyer pays the invoice by card on Stripe's secure checkout page, and the invoice counts as paid only once Stripe verifies it; when the car is picked up, both buyer and seller confirm the pickup in the checkout under Messages — and that's when the seller gets paid. Prefer delivery? Either side can ask the site owner to arrange delivery from seller to buyer from the same checkout. Delivery is priced per trip — no flat rate and no per-mile rate: the owner personally quotes the cost for the trip from the pickup and delivery addresses and notes entered, and that quoted price is shown to both buyer and seller in the checkout before either side agrees to it.</p>
               <p className="mt-2"><strong className="text-[var(--text)]">Fees when a car sells:</strong> selling is free — the seller pays no fee. The buyer pays 5% of the winning bid on anything under $5,000, and 2.5% on $5,000 or more, on top of the winning bid, plus an administrative fee of 2.9% of the subtotal (winning bid + buyer fee) plus $0.30. No sale, no fees.</p>
             </footer>
           </>

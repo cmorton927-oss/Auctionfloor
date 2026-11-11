@@ -26,6 +26,8 @@ export const api = {
   createListing: (args: Record<string, unknown>) => call("createListing", args) as Promise<{ id: number }>,
   placeBid: (args: Record<string, unknown>) =>
     call("placeBid", args) as Promise<{ ok: true; extended: boolean; newEndsAt: string }>,
+  buyNow: (args: Record<string, unknown>) =>
+    call("buyNow", args) as Promise<{ ok: true; saleId: number; accessToken: string | null; amount: number }>,
   toggleWatch: (args: { listingId: number }) => call("toggleWatch", args) as Promise<{ watched: boolean }>,
   deleteListing: (args: { id: number }) => call("deleteListing", args) as Promise<{ ok: true }>,
   listMyMessages: (args: { accessCode: string }) => call("listMyMessages", args) as Promise<{ messages: any[] }>,

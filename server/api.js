@@ -82,6 +82,7 @@ async function toListingOut(row, bidRows, watchedIds, sale) {
     sellerName: row.privateSeller ? "Private seller" : row.sellerName,
     privateSeller: row.privateSeller ?? false,
     noMechanicalIssuesConfirmed: row.noMechanicalIssuesConfirmed ?? false,
+    buyNowPrice: row.buyNowPrice ?? null,
     startingPrice: row.startingPrice,
     reservePrice: row.reservePrice ?? null,
     reserveMet: row.reservePrice == null ? true : (currentBid != null && currentBid >= row.reservePrice),
@@ -257,6 +258,7 @@ api.post("/createListing", asyncHandler(async (req, res) => {
     noMechanicalIssuesConfirmed: z.boolean().default(false),
     startingPrice: z.number().int().min(1).max(10000000),
     reservePrice: z.number().int().min(0).max(10000000).default(0),
+    buyNowPrice: z.number().int().min(0).max(10000000).default(0),
     durationHours: z.number().int().min(1).max(24 * 14),
   }), req.body);
   let imagePath = null;
@@ -273,6 +275,9 @@ api.post("/createListing", asyncHandler(async (req, res) => {
   if (args.condition === "Runs & drives" && !args.noMechanicalIssuesConfirmed) {
     throw new Error("A vehicle listed as Runs & drives needs the seller to confirm it has no mechanical issues.");
   }
+  if (args.buyNowPrice > 0 && args.buyNowPrice < args.startingPrice) {
+    throw new Error("The Buy Now price can't be lower than the starting bid.");
+  }
   const inserted = await db.insert(schema.listings).values({
     year: args.year, make: args.make.trim(), model: args.model.trim(), trim: args.trim.trim() || null,
     mileage: args.mileage, condition: args.condition, titleStatus: args.titleStatus,
@@ -281,7 +286,7 @@ api.post("/createListing", asyncHandler(async (req, res) => {
     sellerName: args.sellerName.trim(), sellerPhone: args.sellerPhone.trim(), sellerEmail: args.sellerEmail.trim(),
     privateSeller: args.privateSeller,
     noMechanicalIssuesConfirmed: args.noMechanicalIssuesConfirmed,
-    startingPrice: args.startingPrice, reservePrice: args.reservePrice > 0 ? args.reservePrice : null, endsAt,
+    startingPrice: args.startingPrice, reservePrice: args.reservePrice > 0 ? args.reservePrice : null, buyNowPrice: args.buyNowPrice > 0 ? args.buyNowPrice : null, endsAt,
   }).returning({ id: schema.listings.id });
   if (!inserted[0]) throw new Error("Failed to create listing");
   res.json({ id: inserted[0].id });
@@ -313,6 +318,37 @@ api.post("/placeBid", asyncHandler(async (req, res) => {
     extended = true;
   }
   res.json({ ok: true, extended, newEndsAt: iso(newEndsAt) });
+}));
+
+api.post("/buyNow", asyncHandler(async (req, res) => {
+  const args = parseBody(z.object({
+    listingId: z.number().int().positive(),
+    buyerName: z.string().min(1).max(80), buyerPhone: phoneField, buyerEmail: emailField,
+  }), req.body);
+  const rows = await db.select().from(schema.listings).where(eq(schema.listings.id, args.listingId));
+  const listing = rows[0];
+  if (!listing) throw new Error("Listing not found");
+  if (new Date(listing.endsAt).getTime() <= Date.now()) throw new Error("This auction has ended");
+  const existingSale = await db.select().from(schema.sales).where(eq(schema.sales.listingId, args.listingId));
+  if (existingSale.length > 0) throw new Error("This auction has already closed");
+  if (listing.buyNowPrice == null) throw new Error("This listing has no Buy Now price");
+  const bidRows = await db.select().from(schema.bids).where(eq(schema.bids.listingId, args.listingId)).orderBy(desc(schema.bids.amount));
+  const top = bidRows[0];
+  if (top && top.amount >= listing.buyNowPrice) throw new Error("Bidding has already passed the Buy Now price");
+  // Close the auction now, record the Buy Now purchase as the winning bid,
+  // and let the normal finalize sweep create the sale, invoice, win
+  // messages, and Stripe checkout exactly like a won bid. The reserve is
+  // cleared: the Buy Now price is the seller's explicit sell-now price.
+  await db.update(schema.listings).set({ endsAt: new Date(), reservePrice: null }).where(eq(schema.listings.id, args.listingId));
+  await db.insert(schema.bids).values({
+    listingId: args.listingId, buyerName: args.buyerName.trim(),
+    buyerPhone: args.buyerPhone.trim(), buyerEmail: args.buyerEmail.trim(), amount: listing.buyNowPrice,
+  });
+  await finalizeEndedAuctions();
+  const saleRows = await db.select().from(schema.sales).where(eq(schema.sales.listingId, args.listingId));
+  const sale = saleRows[0];
+  if (!sale || sale.status !== "sold") throw new Error("The Buy Now purchase couldn't be completed — try again or place a bid.");
+  res.json({ ok: true, saleId: sale.id, accessToken: sale.accessToken ?? null, amount: sale.amount ?? listing.buyNowPrice });
 }));
 
 api.post("/toggleWatch", asyncHandler(async (req, res) => {
