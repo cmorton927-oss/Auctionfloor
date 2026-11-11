@@ -341,8 +341,8 @@ api.post("/buyNow", asyncHandler(async (req, res) => {
   // cleared: the Buy Now price is the seller's explicit sell-now price.
   await db.update(schema.listings).set({ endsAt: new Date(), reservePrice: null }).where(eq(schema.listings.id, args.listingId));
   await db.insert(schema.bids).values({
-    listingId: args.listingId, buyerName: args.buyerName.trim(),
-    buyerPhone: args.buyerPhone.trim(), buyerEmail: args.buyerEmail.trim(), amount: listing.buyNowPrice,
+    listingId: args.listingId, bidderName: args.buyerName.trim(),
+    bidderPhone: args.buyerPhone.trim(), bidderEmail: args.buyerEmail.trim(), amount: listing.buyNowPrice,
   });
   await finalizeEndedAuctions();
   const saleRows = await db.select().from(schema.sales).where(eq(schema.sales.listingId, args.listingId));
