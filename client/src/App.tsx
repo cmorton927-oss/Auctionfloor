@@ -249,7 +249,7 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
 
 function SellForm({ onDone }: { onDone: (id: number) => void }) {
   const queryClient = useQueryClient();
-  const [f, setF] = useState({ year: new Date().getFullYear().toString(), make: "", model: "", trim: "", mileage: "", condition: CONDITIONS[0] as string, titleStatus: TITLES[0] as string, location: "", description: "", sellerName: "", sellerPhone: "", sellerEmail: "", startingPrice: "", reservePrice: "", duration: "72" });
+  const [f, setF] = useState({ year: new Date().getFullYear().toString(), make: "", model: "", trim: "", mileage: "", condition: CONDITIONS[0] as string, titleStatus: TITLES[0] as string, location: "", description: "", sellerName: "", sellerPhone: "", sellerEmail: "", startingPrice: "", reservePrice: "", duration: "72", privateSeller: false });
   const [photo, setPhoto] = useState<{ dataBase64: string; mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; preview: string; name: string } | null>(null);
   const [photoErr, setPhotoErr] = useState("");
   const [err, setErr] = useState("");
@@ -276,6 +276,7 @@ function SellForm({ onDone }: { onDone: (id: number) => void }) {
       location: f.location, description: f.description,
       photo: photo ? { dataBase64: photo.dataBase64, mimeType: photo.mimeType } : null,
       sellerName: f.sellerName, sellerPhone: f.sellerPhone, sellerEmail: f.sellerEmail,
+      privateSeller: f.privateSeller,
       startingPrice: Number(f.startingPrice), reservePrice: f.reservePrice ? Number(f.reservePrice) : 0, durationHours: Number(f.duration),
     }),
     onSuccess: (r) => { queryClient.invalidateQueries({ queryKey: ["auctions"] }); onDone(r.id); },
@@ -301,7 +302,16 @@ function SellForm({ onDone }: { onDone: (id: number) => void }) {
         <div><label htmlFor="sf-duration" className={labelCls}>Auction length</label><select id="sf-duration" value={f.duration} onChange={set("duration")} className={inputCls}><option value="24">1 day</option><option value="48">2 days</option><option value="72">3 days</option><option value="120">5 days</option><option value="168">7 days</option><option value="336">14 days</option></select></div>
         <div><label htmlFor="sf-start" className={labelCls}>Starting bid ($)</label><input id="sf-start" type="number" required min={1} value={f.startingPrice} onChange={set("startingPrice")} placeholder="500" className={inputCls} /></div>
         <div><label htmlFor="sf-reserve" className={labelCls}>Reserve price ($) — optional</label><input id="sf-reserve" type="number" min={0} value={f.reservePrice} onChange={set("reservePrice")} placeholder="Leave blank for no reserve" className={inputCls} /></div>
-        <div><label htmlFor="sf-seller" className={labelCls}>Your name (seller)</label><input id="sf-seller" required value={f.sellerName} onChange={set("sellerName")} placeholder="Shown on the listing" className={inputCls} /></div>
+        <div><label htmlFor="sf-seller" className={labelCls}>Your name (seller)</label><input id="sf-seller" required value={f.sellerName} onChange={set("sellerName")} placeholder={f.privateSeller ? "Only the winning buyer will see this" : "Shown on the listing"} className={inputCls} /></div>
+        <div className="sm:col-span-3 flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5">
+          <button type="button" role="switch" aria-checked={f.privateSeller} aria-label="Stay private during the auction" onClick={() => setF((s) => ({ ...s, privateSeller: !s.privateSeller }))} className={`mt-0.5 shrink-0 w-11 h-6 rounded-full relative transition-colors ${f.privateSeller ? "bg-[var(--accent-strong)]" : "bg-[var(--border)]"}`}>
+            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${f.privateSeller ? "left-[22px]" : "left-0.5"}`} />
+          </button>
+          <span>
+            <span className="block text-sm font-semibold">Stay private during the auction</span>
+            <span className="block text-xs text-[var(--dim)] mt-0.5">Your name won't show on the listing — it will show as "Private seller" instead. Only the winning buyer learns who you are, in the win message and checkout. Your phone and email are still required so the winner can reach you.</span>
+          </span>
+        </div>
         <div><label htmlFor="sf-phone" className={labelCls}>Your mobile phone (required — for texts)</label><input id="sf-phone" type="tel" required value={f.sellerPhone} onChange={set("sellerPhone")} placeholder="So the winner can reach you" className={inputCls} /></div>
         <div><label htmlFor="sf-email" className={labelCls}>Your email (required)</label><input id="sf-email" type="email" required value={f.sellerEmail} onChange={set("sellerEmail")} placeholder="you@example.com" className={inputCls} /></div>
       </div>

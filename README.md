@@ -45,6 +45,11 @@ standard stack that runs on Render:
   notice. In-app copies are always written; email (SendGrid) and SMS
   (Twilio) are sent when configured — if a provider key is absent, those
   copies stay queued in-app (`sent_at` empty) and the sale is never blocked.
+- **Seller privacy toggle:** on the list-a-car form, "Stay private during the
+  auction" shows the listing as "Private seller" instead of the seller's name.
+  The seller's real name and contact info are still collected and still go to
+  the winning buyer only — in the win message and the code-gated Messages
+  checkout. The owner tab always sees the real name.
 - **Owner tab** (Messages → Owner — fees & settings): fee notices, delivery
   requests + per-trip quotes, and owner contact settings. Gated by owner
   login — see below.

@@ -79,7 +79,8 @@ async function toListingOut(row, bidRows, watchedIds, sale) {
     location: row.location,
     description: row.description,
     imageUrl: row.imagePath ? `/uploads/${row.imagePath}` : (row.imageUrl ?? null),
-    sellerName: row.sellerName,
+    sellerName: row.privateSeller ? "Private seller" : row.sellerName,
+    privateSeller: row.privateSeller ?? false,
     startingPrice: row.startingPrice,
     reservePrice: row.reservePrice ?? null,
     reserveMet: row.reservePrice == null ? true : (currentBid != null && currentBid >= row.reservePrice),
@@ -251,6 +252,7 @@ api.post("/createListing", asyncHandler(async (req, res) => {
     location: z.string().min(1).max(120), description: z.string().min(1).max(4000),
     photo: z.object({ dataBase64: z.string().min(1).max(15_000_000), mimeType: z.enum(["image/jpeg", "image/png", "image/webp", "image/gif"]) }).nullable().default(null),
     sellerName: z.string().min(1).max(80), sellerPhone: phoneField, sellerEmail: emailField,
+    privateSeller: z.boolean().default(false),
     startingPrice: z.number().int().min(1).max(10000000),
     reservePrice: z.number().int().min(0).max(10000000).default(0),
     durationHours: z.number().int().min(1).max(24 * 14),
@@ -272,6 +274,7 @@ api.post("/createListing", asyncHandler(async (req, res) => {
     location: args.location.trim(), description: args.description.trim(),
     imageUrl: null, imagePath,
     sellerName: args.sellerName.trim(), sellerPhone: args.sellerPhone.trim(), sellerEmail: args.sellerEmail.trim(),
+    privateSeller: args.privateSeller,
     startingPrice: args.startingPrice, reservePrice: args.reservePrice > 0 ? args.reservePrice : null, endsAt,
   }).returning({ id: schema.listings.id });
   if (!inserted[0]) throw new Error("Failed to create listing");

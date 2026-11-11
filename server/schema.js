@@ -20,6 +20,7 @@ export const listings = pgTable("listings", {
   sellerName: text("seller_name").notNull(),
   sellerPhone: text("seller_phone"),
   sellerEmail: text("seller_email"),
+  privateSeller: boolean("private_seller").notNull().default(false), // when true, public views show "Private seller"; only the winning buyer learns the real name
   startingPrice: integer("starting_price").notNull(),
   reservePrice: integer("reserve_price"),
   endsAt: timestamp("ends_at").notNull(),
