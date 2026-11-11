@@ -37,7 +37,7 @@ export async function createCheckoutSession(listing, sale, car) {
           currency: "usd",
           product_data: {
             name: `AuctionFloor invoice — ${car}`,
-            description: `Winning bid + buyer fee + card processing fee (2.9% + $0.30)`,
+            description: `Winning bid + buyer fee + administrative fee (2.9% + $0.30)`,
           },
           unit_amount: totalCents,
         },

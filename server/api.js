@@ -17,7 +17,7 @@ import {
   carName,
   money,
   moneyCents,
-  processingFeeCentsFor,
+  adminFeeCentsFor,
   saleTotalDueCents,
 } from "./fees.js";
 import { applyVerifiedStripePayment, createCheckoutForSale, finalizeEndedAuctions, releasePayoutIfReady } from "./finalize.js";
@@ -108,7 +108,7 @@ async function toListingOut(row, bidRows, watchedIds, sale) {
 function toCheckoutOut(sale, listing) {
   const amount = sale.amount ?? null;
   const fee = sale.buyerFee ?? null;
-  const processingFee = amount != null ? (sale.processingFee ?? processingFeeCentsFor(amount + (fee ?? 0))) : null;
+  const processingFee = amount != null ? (sale.processingFee ?? adminFeeCentsFor(amount + (fee ?? 0))) : null;
   return {
     found: true,
     car: carName(listing),

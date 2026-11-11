@@ -13,7 +13,7 @@ import {
   carName,
   money,
   moneyCents,
-  processingFeeCentsFor,
+  adminFeeCentsFor,
   saleTotalDueCents,
 } from "./fees.js";
 import { buyerSellerOwnerEntries, getOwnerSettingsRow, notifySaleParties } from "./notify.js";
@@ -119,7 +119,7 @@ export async function finalizeEndedAuctions() {
     }
 
     const buyerFee = buyerFeeFor(top.amount);
-    const processingFee = processingFeeCentsFor(top.amount + buyerFee);
+    const processingFee = adminFeeCentsFor(top.amount + buyerFee);
     let accessToken = "";
     for (let i = 0; i < 5 && !accessToken; i++) {
       const candidate = randomAccessToken();
@@ -144,7 +144,7 @@ export async function finalizeEndedAuctions() {
     const buyerBody =
       `INVOICE — you won the ${car} for ${money(top.amount)}. ` +
       `Buyer fee: ${money(buyerFee)} (${buyerFeeRate(top.amount)} of the winning bid). ` +
-      `Card processing fee: ${moneyCents(processingFee)} (2.9% of the ${money(top.amount + buyerFee)} subtotal plus $0.30). ` +
+      `Administrative fee: ${moneyCents(processingFee)} (2.9% of the ${money(top.amount + buyerFee)} subtotal plus $0.30). ` +
       `Total due on this invoice: ${moneyCents(totalDueCents)}, payable by card through Stripe. ` +
       `To pay: open the checkout under Messages on AuctionFloor with your access code and tap "Pay by card on Stripe" — you'll enter your card on Stripe's secure checkout page, and AuctionFloor marks the invoice paid only after Stripe verifies the payment. The Stripe account (${STRIPE_ACCOUNT_NAME}) is live, so this is a real card payment. ` +
       `The seller, ${row.sellerName}, can be reached at ${sellerContact} to arrange pickup. ` +
@@ -152,7 +152,7 @@ export async function finalizeEndedAuctions() {
       deliveryLine + codeLine;
     const sellerBody =
       `Your ${car} sold for ${money(top.amount)}. Selling is free — there is no seller fee on this sale. ` +
-      `The winning buyer, ${top.bidderName}, has been invoiced ${moneyCents(totalDueCents)} (winning bid ${money(top.amount)} plus their ${money(buyerFee)} buyer fee and a ${moneyCents(processingFee)} card processing fee — 2.9% of the subtotal plus $0.30), payable by card through Stripe (live account). ` +
+      `The winning buyer, ${top.bidderName}, has been invoiced ${moneyCents(totalDueCents)} (winning bid ${money(top.amount)} plus their ${money(buyerFee)} buyer fee and a ${moneyCents(processingFee)} administrative fee — 2.9% of the subtotal plus $0.30), payable by card through Stripe (live account). ` +
       `Contact the buyer at ${buyerContact} to arrange pickup. ` +
       `You get paid ${money(top.amount)} once Stripe has verified the buyer's invoice as paid and both you and the buyer confirm the pickup in the checkout under Messages on AuctionFloor.` +
       deliveryLine + codeLine;
@@ -160,7 +160,7 @@ export async function finalizeEndedAuctions() {
       `Fee notice — ${car} sold for ${money(top.amount)}. ` +
       `Seller fee: free ($0). ` +
       `Buyer fee due: ${money(buyerFee)} (${buyerFeeRate(top.amount)} of the winning bid, from buyer ${top.bidderName}). ` +
-      `Card processing fee due from the buyer: ${moneyCents(processingFee)} (2.9% of the ${money(top.amount + buyerFee)} subtotal plus $0.30). ` +
+      `Administrative fee due from the buyer: ${moneyCents(processingFee)} (2.9% of the ${money(top.amount + buyerFee)} subtotal plus $0.30). ` +
       `The buyer has been invoiced ${moneyCents(totalDueCents)} total, payable by card through the connected Stripe account (${STRIPE_ACCOUNT_NAME}, live mode); the seller is paid ${money(top.amount)} only after Stripe verifies the payment and both sides confirm pickup. ` +
       `Buyer contact: ${buyerContact}. Seller contact: ${sellerContact}.`;
     const owner = await getOwnerSettingsRow();

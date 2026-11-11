@@ -12,12 +12,12 @@ const TITLES = ["Clean title", "Rebuilt / salvage title", "No title — bill of 
 
 function money(n: number) { return "$" + n.toLocaleString(); }
 
-// Marketplace fees: selling is FREE for the seller; the buyer pays 10% of
-// the winning bid under $1,000 and 5% at $1,000 or more, plus a card
-// processing fee of 2.9% of the subtotal (bid + buyer fee) plus $0.30.
-function buyerFeeFor(amount: number) { return Math.max(1, Math.round(amount < 1000 ? amount * 0.1 : amount * 0.05)); }
-function buyerFeeRate(amount: number) { return amount < 1000 ? "10%" : "5%"; }
-function processingFeeCentsFor(subtotalDollars: number) { return Math.round(subtotalDollars * 100 * 0.029) + 30; }
+// Marketplace fees: selling is FREE for the seller; the buyer pays 5% of
+// the winning bid under $5,000 and 2.5% at $5,000 or more, plus an
+// administrative fee of 2.9% of the subtotal (bid + buyer fee) plus $0.30.
+function buyerFeeFor(amount: number) { return Math.max(1, Math.round(amount < 5000 ? amount * 0.05 : amount * 0.025)); }
+function buyerFeeRate(amount: number) { return amount < 5000 ? "5%" : "2.5%"; }
+function adminFeeCentsFor(subtotalDollars: number) { return Math.round(subtotalDollars * 100 * 0.029) + 30; }
 function moneyCents(cents: number) { return "$" + (cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
 function useNow() {
@@ -171,8 +171,8 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-3 text-sm">
                     <div className="bg-[var(--surface)] rounded-lg p-3"><p className="text-[11px] uppercase tracking-widest text-[var(--dim)]">Winning bid</p><p className="font-display text-2xl font-bold tabular">{money(listing.sale.amount)}</p></div>
                     <div className="bg-[var(--surface)] rounded-lg p-3"><p className="text-[11px] uppercase tracking-widest text-[var(--dim)]">Buyer fee ({buyerFeeRate(listing.sale.amount)})</p><p className="font-display text-2xl font-bold tabular">{money(listing.sale.buyerFee ?? buyerFeeFor(listing.sale.amount))}</p></div>
-                    <div className="bg-[var(--surface)] rounded-lg p-3"><p className="text-[11px] uppercase tracking-widest text-[var(--dim)]">Processing fee (2.9% + $0.30)</p><p className="font-display text-2xl font-bold tabular">{moneyCents(listing.sale.processingFee ?? processingFeeCentsFor(listing.sale.amount + (listing.sale.buyerFee ?? buyerFeeFor(listing.sale.amount))))}</p></div>
-                    <div className="bg-[var(--surface)] rounded-lg p-3"><p className="text-[11px] uppercase tracking-widest text-[var(--dim)]">Invoice total due</p><p className="font-display text-2xl font-bold tabular">{moneyCents((listing.sale.amount + (listing.sale.buyerFee ?? buyerFeeFor(listing.sale.amount))) * 100 + (listing.sale.processingFee ?? processingFeeCentsFor(listing.sale.amount + (listing.sale.buyerFee ?? buyerFeeFor(listing.sale.amount)))))}</p></div>
+                    <div className="bg-[var(--surface)] rounded-lg p-3"><p className="text-[11px] uppercase tracking-widest text-[var(--dim)]">Administrative fee (2.9% + $0.30)</p><p className="font-display text-2xl font-bold tabular">{moneyCents(listing.sale.processingFee ?? adminFeeCentsFor(listing.sale.amount + (listing.sale.buyerFee ?? buyerFeeFor(listing.sale.amount))))}</p></div>
+                    <div className="bg-[var(--surface)] rounded-lg p-3"><p className="text-[11px] uppercase tracking-widest text-[var(--dim)]">Invoice total due</p><p className="font-display text-2xl font-bold tabular">{moneyCents((listing.sale.amount + (listing.sale.buyerFee ?? buyerFeeFor(listing.sale.amount))) * 100 + (listing.sale.processingFee ?? adminFeeCentsFor(listing.sale.amount + (listing.sale.buyerFee ?? buyerFeeFor(listing.sale.amount)))))}</p></div>
                     <div className="bg-[var(--surface)] rounded-lg p-3"><p className="text-[11px] uppercase tracking-widest text-[var(--dim)]">Seller fee</p><p className="font-display text-2xl font-bold tabular">Free</p></div>
                   </div>
                 </>
@@ -205,7 +205,7 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
                   {bidMut.isPending ? "Bidding…" : "Place bid"}
                 </button>
               </div>
-              <p className="text-xs text-[var(--dim)] mt-2">If you win, an invoice for the winning bid plus the buyer fee plus a card processing fee (2.9% of the subtotal + $0.30) is sent to you by text and email to pay by card through Stripe (live mode — a real card payment), and you and the seller get each other's contact info. Buyer fee if you win: {buyerFeeRate(Number(amount) || price)} of the winning bid ({money(buyerFeeFor(Number(amount) || price))} at {money(Number(amount) || price)}), plus a processing fee of {moneyCents(processingFeeCentsFor((Number(amount) || price) + buyerFeeFor(Number(amount) || price)))}. The seller is paid after Stripe verifies your invoice payment and both sides confirm the pickup.</p>
+              <p className="text-xs text-[var(--dim)] mt-2">If you win, an invoice for the winning bid plus the buyer fee plus an administrative fee (2.9% of the subtotal + $0.30) is sent to you by text and email to pay by card through Stripe (live mode — a real card payment), and you and the seller get each other's contact info. Buyer fee if you win: {buyerFeeRate(Number(amount) || price)} of the winning bid ({money(buyerFeeFor(Number(amount) || price))} at {money(Number(amount) || price)}), plus an administrative fee of {moneyCents(adminFeeCentsFor((Number(amount) || price) + buyerFeeFor(Number(amount) || price)))}. The seller is paid after Stripe verifies your invoice payment and both sides confirm the pickup.</p>
               <div className="flex flex-wrap gap-2 mt-3">
                 {[100, 250, 500, 1000].map((inc) => (
                   <button key={inc} type="button" onClick={() => setAmount(String((listing.currentBid ?? listing.startingPrice) + inc))} className="px-3 py-1.5 rounded-full border border-[var(--border)] text-sm font-semibold" aria-label={`Set bid to current plus ${inc} dollars`}>+{money(inc)}</button>
@@ -288,7 +288,7 @@ function SellForm({ onDone }: { onDone: (id: number) => void }) {
   return (
     <form onSubmit={(e: FormEvent) => { e.preventDefault(); setErr(""); mut.mutate(); }} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-6 pb-6">
       <h2 className="font-display text-3xl font-bold uppercase">List a car for auction</h2>
-      <p className="text-sm text-[var(--dim)] mt-1">Anyone can list. It goes live the moment you submit, and bidding stays open until the clock runs out. Your mobile phone and email are required — when your car sells, you and the buyer instantly get a text and an email with each other's contact info. Selling is free — there is no seller fee. The buyer is invoiced the winning bid plus their buyer fee and a card processing fee (2.9% of the subtotal + $0.30), payable by card through Stripe (live account — real card payments), and you get paid once Stripe verifies the invoice payment and both sides confirm the pickup.</p>
+      <p className="text-sm text-[var(--dim)] mt-1">Anyone can list. It goes live the moment you submit, and bidding stays open until the clock runs out. Your mobile phone and email are required — when your car sells, you and the buyer instantly get a text and an email with each other's contact info. Selling is free — there is no seller fee. The buyer is invoiced the winning bid plus their buyer fee and an administrative fee (2.9% of the subtotal + $0.30), payable by card through Stripe (live account — real card payments), and you get paid once Stripe verifies the invoice payment and both sides confirm the pickup.</p>
       <div className="grid sm:grid-cols-3 gap-4 mt-5">
         <div><label htmlFor="sf-year" className={labelCls}>Year</label><input id="sf-year" type="number" required min={1900} max={2030} value={f.year} onChange={set("year")} className={inputCls} /></div>
         <div><label htmlFor="sf-make" className={labelCls}>Make</label><input id="sf-make" required value={f.make} onChange={set("make")} placeholder="Ford" className={inputCls} /></div>
@@ -367,7 +367,7 @@ function OwnerSettingsForm() {
   return (
     <form onSubmit={(e: FormEvent) => { e.preventDefault(); setSaved(false); mut.mutate(); }} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
       <h3 className="font-display text-2xl font-bold uppercase">Owner contact — where win &amp; fee messages go</h3>
-      <p className="text-sm text-[var(--dim)] mt-1">Site owner only: every time a car sells, a win message and the fee breakdown (selling is free for the seller · buyer pays 10% under $1,000 / 5% at $1,000+, plus a 2.9% + $0.30 card processing fee) are texted and emailed to this mobile number and email address — along with invoice-paid, pickup, payout, and delivery-request updates.</p>
+      <p className="text-sm text-[var(--dim)] mt-1">Site owner only: every time a car sells, a win message and the fee breakdown (selling is free for the seller · buyer pays 5% under $5,000 / 2.5% at $5,000+, plus a 2.9% + $0.30 administrative fee) are texted and emailed to this mobile number and email address — along with invoice-paid, pickup, payout, and delivery-request updates.</p>
       {!contact.isPending && contact.data && !contact.data.isSet && <p role="status" className="mt-2 text-sm font-semibold text-[var(--danger)]">Not set yet — until you save your number and email, win and fee messages can't be texted or emailed to you (in-app copies still appear below).</p>}
       <div className="grid sm:grid-cols-3 gap-3 mt-3">
         <div><label htmlFor="oc-name" className={labelCls}>Your name</label><input id="oc-name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Charles Morton" className={inputCls} /></div>
@@ -514,7 +514,7 @@ function CheckoutPanel({ code }: { code: string }) {
         <div className="bg-[var(--surface2)] rounded-xl p-4">
           <p className="text-[11px] uppercase tracking-widest text-[var(--dim)]">Step 1 · Buyer invoice — pay by card through Stripe</p>
           <p className="font-display text-3xl font-bold tabular mt-1">{c.totalDue != null ? moneyCents(Math.round(c.totalDue * 100)) : "—"}</p>
-          <p className="text-sm text-[var(--dim)]">Winning bid {c.amount != null ? money(c.amount) : "—"} + buyer fee {c.buyerFee != null ? money(c.buyerFee) : "—"} + processing fee {c.processingFee != null ? moneyCents(c.processingFee) : "—"} (2.9% of the subtotal + $0.30). Seller fee: free.</p>
+          <p className="text-sm text-[var(--dim)]">Winning bid {c.amount != null ? money(c.amount) : "—"} + buyer fee {c.buyerFee != null ? money(c.buyerFee) : "—"} + administrative fee {c.processingFee != null ? moneyCents(c.processingFee) : "—"} (2.9% of the subtotal + $0.30). Seller fee: free.</p>
           <p role="status" className={`mt-3 inline-block text-[11px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full ${stripe.paid ? "bg-[var(--accent-strong)] text-black" : "bg-[var(--surface)] border border-[var(--border)]"}`}>
             Stripe payment: {stripe.label}
           </p>
@@ -705,7 +705,7 @@ function MessagesView({ onOpenListing }: { onOpenListing: (id: number) => void }
   return (
     <div className="pb-10">
       <h2 className="font-display text-4xl font-bold uppercase leading-none">Messages</h2>
-      <p className="text-sm text-[var(--dim)] mt-2">When an auction is won, the buyer is invoiced by text and email with a Stripe pay link (winning bid + buyer fee + a 2.9% + $0.30 card processing fee — Stripe account in live mode, real card payments), buyer and seller get each other's contact info, and the site owner gets the win + fee message the same way. Enter a sale's access code below to see its messages and its checkout — pay the invoice by card on Stripe, confirm the pickup (both sides), or arrange delivery through the owner (priced per trip: the owner quotes the cost, and both sides see and agree to the quoted price before the haul is booked).</p>
+      <p className="text-sm text-[var(--dim)] mt-2">When an auction is won, the buyer is invoiced by text and email with a Stripe pay link (winning bid + buyer fee + a 2.9% + $0.30 administrative fee — Stripe account in live mode, real card payments), buyer and seller get each other's contact info, and the site owner gets the win + fee message the same way. Enter a sale's access code below to see its messages and its checkout — pay the invoice by card on Stripe, confirm the pickup (both sides), or arrange delivery through the owner (priced per trip: the owner quotes the cost, and both sides see and agree to the quoted price before the haul is booked).</p>
       <div className="flex flex-wrap gap-2 mt-4" role="tablist" aria-label="Message inboxes">
         <button type="button" role="tab" aria-selected={tab === "mine"} onClick={() => setTab("mine")} className={`px-4 py-2 rounded-full font-display text-lg font-semibold uppercase tracking-wide ${tab === "mine" ? "bg-[var(--text)] text-[var(--bg)]" : "bg-[var(--surface)] border border-[var(--border)]"}`}>My messages</button>
         <button type="button" role="tab" aria-selected={tab === "owner"} onClick={() => setTab("owner")} className={`px-4 py-2 rounded-full font-display text-lg font-semibold uppercase tracking-wide ${tab === "owner" ? "bg-[var(--text)] text-[var(--bg)]" : "bg-[var(--surface)] border border-[var(--border)]"}`}>Owner — fees &amp; settings</button>
@@ -754,7 +754,7 @@ function MessagesView({ onOpenListing }: { onOpenListing: (id: number) => void }
             : !owner.data || owner.data.messages.length === 0 ? (
               <div className="py-12 text-center bg-[var(--surface)] border border-dashed border-[var(--border)] rounded-2xl px-6">
                 <p className="font-display text-3xl font-bold uppercase">No sales yet</p>
-                <p className="text-[var(--dim)] mt-2">The first time a car sells, the win message and the fee notice (selling is free · buyer fee 10% under $1,000 / 5% at $1,000+, plus a 2.9% + $0.30 card processing fee) are texted and emailed to the owner contact above, and copies land here — along with invoice, pickup, payout, and delivery updates.</p>
+                <p className="text-[var(--dim)] mt-2">The first time a car sells, the win message and the fee notice (selling is free · buyer fee 5% under $5,000 / 2.5% at $5,000+, plus a 2.9% + $0.30 administrative fee) are texted and emailed to the owner contact above, and copies land here — along with invoice, pickup, payout, and delivery updates.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-3">
@@ -910,7 +910,7 @@ export function App() {
 
             <footer className="mt-10 text-sm text-[var(--dim)] leading-relaxed border-t border-[var(--border)] pt-4 pb-6">
               <p><strong className="text-[var(--text)]">How it works:</strong> anyone lists a car with a starting bid and a clock. Highest bid when the clock runs out wins (reserve must be met if the seller set one). Bids in the final 2 minutes extend the auction by 2 minutes so nobody gets sniped. Contact info — mobile phone and email — is required to list and to bid: the moment an auction is won, the buyer is invoiced by text and email, buyer and seller get each other's contact info, and the site owner gets the win and fee message the same way. The buyer pays the invoice by card on Stripe's secure checkout page, and the invoice counts as paid only once Stripe verifies it; when the car is picked up, both buyer and seller confirm the pickup in the checkout under Messages — and that's when the seller gets paid. Prefer delivery? Either side can ask the site owner to arrange delivery from seller to buyer from the same checkout. Delivery is priced per trip — no flat rate and no per-mile rate: the owner personally quotes the cost for the trip from the pickup and delivery addresses and notes entered, and that quoted price is shown to both buyer and seller in the checkout before either side agrees to it.</p>
-              <p className="mt-2"><strong className="text-[var(--text)]">Fees when a car sells:</strong> selling is free — the seller pays no fee. The buyer pays 10% of the winning bid on anything under $1,000, and 5% on $1,000 or more, on top of the winning bid, plus a card processing fee of 2.9% of the subtotal (winning bid + buyer fee) plus $0.30. No sale, no fees.</p>
+              <p className="mt-2"><strong className="text-[var(--text)]">Fees when a car sells:</strong> selling is free — the seller pays no fee. The buyer pays 5% of the winning bid on anything under $5,000, and 2.5% on $5,000 or more, on top of the winning bid, plus an administrative fee of 2.9% of the subtotal (winning bid + buyer fee) plus $0.30. No sale, no fees.</p>
             </footer>
           </>
         )}

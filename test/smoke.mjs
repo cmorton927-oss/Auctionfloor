@@ -82,9 +82,9 @@ async function main() {
     assert.ok(ended, "ended listing present");
     eq(ended.sale.status, "sold", "sale status");
     eq(ended.sale.amount, 800, "winning bid");
-    eq(ended.sale.buyerFee, 80, "buyer fee 10% under $1,000");
-    eq(ended.sale.processingFee, Math.round(880 * 100 * 0.029) + 30, "processing fee 2.9% + $0.30");
-    console.log("fees OK: buyer fee $80, processing", ended.sale.processingFee, "cents");
+    eq(ended.sale.buyerFee, 40, "buyer fee 5% under $5,000");
+    eq(ended.sale.processingFee, Math.round(840 * 100 * 0.029) + 30, "administrative fee 2.9% + $0.30");
+    console.log("fees OK: buyer fee $40, administrative fee", ended.sale.processingFee, "cents");
 
     // 4. Get the access code from the DB (in production it arrives by
     //    text/email), then open the checkout with it.
@@ -97,7 +97,7 @@ async function main() {
     const checkout = await post("/api/getSaleCheckout", { accessCode: code });
     eq(checkout.status, 200, "getSaleCheckout status");
     eq(checkout.data.found, true, "checkout found");
-    eq(checkout.data.totalDue, 800 + 80 + checkout.data.processingFee / 100, "invoice total");
+    eq(checkout.data.totalDue, 800 + 40 + checkout.data.processingFee / 100, "invoice total");
     console.log("invoice total:", checkout.data.totalDue);
 
     // 5. Stripe checkout creation must fail cleanly with no key (503),

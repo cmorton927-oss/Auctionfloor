@@ -22,10 +22,10 @@ standard stack that runs on Render:
 - Tabs: Live now / Ending < 24h / Watchlist / Ended / All, plus search,
   condition filter, and sort (ending soonest, price, newest). Detail pages
   with specs, seller name only, and full bid history.
-- **Fees, exactly:** selling is FREE. Buyer fee 10% under $1,000, 5% at
-  $1,000+. Card processing fee 2.9% of (winning bid + buyer fee) + $0.30,
+- **Fees, exactly:** selling is FREE. Buyer fee 5% under $5,000, 2.5% at
+  $5,000+. Administrative fee 2.9% of (winning bid + buyer fee) + $0.30,
   in cents: `round(subtotal_cents × 0.029) + 30`. Example: $800 win →
-  $80 buyer fee + $25.82 processing = **$905.82 due**. No sale, no fees.
+  $40 buyer fee + $24.66 administrative fee = **$864.66 due**. No sale, no fees.
 - On a win the buyer is auto-invoiced and pays by card on Stripe's hosted
   checkout. The invoice counts as paid **only** when Stripe itself reports
   `payment_status: "paid"`, session `complete`, and the exact invoice total
