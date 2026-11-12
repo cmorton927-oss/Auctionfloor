@@ -5,9 +5,19 @@ services:
     plan: starter
     buildCommand: npm install --include=dev && npm run build
     startCommand: node server.js
+    # Persistent disk for listing photos: without it, every redeploy wipes
+    # the ephemeral filesystem and all uploaded photos with it. 1 GB holds
+    # roughly 2,000 listing photos (~$0.25/month). The app writes uploads
+    # to UPLOADS_DIR (server.js creates it on startup).
+    disk:
+      name: auctionfloor-uploads
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
+      - key: UPLOADS_DIR
+        value: /var/data/uploads
       - key: APP_URL
         value: https://auction423.com
       - key: DATABASE_URL
