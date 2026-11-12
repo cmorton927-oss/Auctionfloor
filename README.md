@@ -15,8 +15,10 @@ standard stack that runs on Render:
 ## What it does (all replicated from the original)
 
 - Anyone can list a car: year/make/model/trim, mileage, condition, title
-  status, location, description, photo upload (JPG/PNG/WebP/GIF ≤ 8 MB),
-  starting bid, optional reserve, 1–14 days. Listing is live immediately.
+  status, location, description, photos — drag-and-drop or tap to pick,
+  up to 8 per listing (JPG/PNG/WebP/GIF ≤ 8 MB each; first photo is the
+  main one on the listing card, detail page shows a gallery) — starting
+  bid, optional reserve, 1–14 days. Listing is live immediately.
 - Anyone can bid (name + mobile + email required). Bids in the final
   2 minutes extend the clock by 2 minutes (anti-sniping).
 - Tabs: Live now / Ending < 24h / Watchlist / Ended / All, plus search,

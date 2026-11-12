@@ -65,10 +65,16 @@ function uploadsDir() {
   return process.env.UPLOADS_DIR || path.join(process.cwd(), "uploads");
 }
 
-async function toListingOut(row, bidRows, watchedIds, sale) {
+async function toListingOut(row, bidRows, watchedIds, sale, photoPaths = []) {
   const sorted = [...bidRows].sort((a, b) => b.amount - a.amount);
   const top = sorted[0];
   const currentBid = top ? top.amount : null;
+  // Photos: the listing_photos rows (position order), falling back to the
+  // legacy single imagePath / imageUrl for listings created before
+  // multi-photo support. imageUrl stays the first photo (the cover).
+  const photos = photoPaths.length > 0
+    ? photoPaths.map((p) => `/uploads/${p}`)
+    : (row.imagePath ? [`/uploads/${row.imagePath}`] : (row.imageUrl ? [row.imageUrl] : []));
   return {
     id: row.id,
     year: row.year,
@@ -81,7 +87,8 @@ async function toListingOut(row, bidRows, watchedIds, sale) {
     location: row.location,
     zipCode: row.zipCode ?? null,
     description: row.description,
-    imageUrl: row.imagePath ? `/uploads/${row.imagePath}` : (row.imageUrl ?? null),
+    imageUrl: photos[0] ?? null,
+    photos,
     sellerName: row.privateSeller ? "Private seller" : row.sellerName,
     privateSeller: row.privateSeller ?? false,
     noMechanicalIssuesConfirmed: row.noMechanicalIssuesConfirmed ?? false,
@@ -209,7 +216,13 @@ api.post("/listAuctions", asyncHandler(async (req, res) => {
   const allBids = await db.select().from(schema.bids);
   const saleRows = await db.select().from(schema.sales);
   const saleByListing = new Map(saleRows.map((s) => [s.listingId, s]));
-  const out = await Promise.all(rows.map((r) => toListingOut(r, allBids.filter((b) => b.listingId === r.id), watchedIds, saleByListing.get(r.id))));
+  const photoRows = await db.select().from(schema.listingPhotos).orderBy(asc(schema.listingPhotos.listingId), asc(schema.listingPhotos.position));
+  const photosByListing = new Map();
+  for (const p of photoRows) {
+    if (!photosByListing.has(p.listingId)) photosByListing.set(p.listingId, []);
+    photosByListing.get(p.listingId).push(p.imagePath);
+  }
+  const out = await Promise.all(rows.map((r) => toListingOut(r, allBids.filter((b) => b.listingId === r.id), watchedIds, saleByListing.get(r.id), photosByListing.get(r.id) ?? [])));
   const now = Date.now();
   const stats = {
     live: out.filter((l) => !l.isEnded).length,
@@ -243,7 +256,8 @@ api.post("/getAuction", asyncHandler(async (req, res) => {
   const watchedIds = new Set(watchRows.map((w) => w.listingId));
   const allForListing = await db.select().from(schema.bids).where(eq(schema.bids.listingId, id));
   const saleRows = await db.select().from(schema.sales).where(eq(schema.sales.listingId, id));
-  const listing = await toListingOut(row, allForListing, watchedIds, saleRows[0]);
+  const photoRows = await db.select().from(schema.listingPhotos).where(eq(schema.listingPhotos.listingId, id)).orderBy(asc(schema.listingPhotos.position));
+  const listing = await toListingOut(row, allForListing, watchedIds, saleRows[0], photoRows.map((p) => p.imagePath));
   const bidRows = await db.select().from(schema.bids).where(eq(schema.bids.listingId, id)).orderBy(desc(schema.bids.createdAt));
   res.json({ listing, bids: bidRows.map((b) => ({ id: b.id, bidderName: b.bidderName, amount: b.amount, createdAt: iso(b.createdAt) })) });
 }));
@@ -257,6 +271,7 @@ api.post("/createListing", asyncHandler(async (req, res) => {
     location: z.string().min(1).max(120), description: z.string().min(1).max(4000),
     zipCode: z.string().regex(/^\d{5}$/, "Enter a 5-digit ZIP code"),
     photo: z.object({ dataBase64: z.string().min(1).max(15_000_000), mimeType: z.enum(["image/jpeg", "image/png", "image/webp", "image/gif"]) }).nullable().default(null),
+    photos: z.array(z.object({ dataBase64: z.string().min(1).max(15_000_000), mimeType: z.enum(["image/jpeg", "image/png", "image/webp", "image/gif"]) })).max(8, "Up to 8 photos per listing.").default([]),
     sellerName: z.string().min(1).max(80), sellerPhone: phoneField, sellerEmail: emailField,
     privateSeller: z.boolean().default(false),
     noMechanicalIssuesConfirmed: z.boolean().default(false),
@@ -265,16 +280,21 @@ api.post("/createListing", asyncHandler(async (req, res) => {
     buyNowPrice: z.number().int().min(0).max(10000000).default(0),
     durationHours: z.number().int().min(1).max(24 * 14),
   }), req.body);
-  let imagePath = null;
-  if (args.photo) {
-    const bytes = Buffer.from(args.photo.dataBase64, "base64");
+  // Photos: the `photos` array (up to 8) wins; the legacy single `photo`
+  // field is kept for older clients. The first photo is the cover photo
+  // (also stored as listings.imagePath for backward compatibility).
+  const photoInputs = (args.photos ?? []).length > 0 ? args.photos : (args.photo ? [args.photo] : []);
+  const savedPaths = [];
+  for (const p of photoInputs) {
+    const bytes = Buffer.from(p.dataBase64, "base64");
     if (bytes.length === 0 || bytes.length > 10 * 1024 * 1024) throw new Error("That photo could not be read — try a smaller image file.");
-    const ext = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" }[args.photo.mimeType];
+    const ext = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" }[p.mimeType];
     const filename = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}.${ext}`;
     fs.mkdirSync(uploadsDir(), { recursive: true });
     fs.writeFileSync(path.join(uploadsDir(), filename), bytes);
-    imagePath = filename;
+    savedPaths.push(filename);
   }
+  const imagePath = savedPaths[0] ?? null;
   const endsAt = new Date(Date.now() + args.durationHours * 3600 * 1000);
   if (args.condition === "Runs & drives" && !args.noMechanicalIssuesConfirmed) {
     throw new Error("A vehicle listed as Runs & drives needs the seller to confirm it has no mechanical issues.");
@@ -295,6 +315,9 @@ api.post("/createListing", asyncHandler(async (req, res) => {
     startingPrice: args.startingPrice, reservePrice: args.reservePrice > 0 ? args.reservePrice : null, buyNowPrice: args.buyNowPrice > 0 ? args.buyNowPrice : null, endsAt,
   }).returning({ id: schema.listings.id });
   if (!inserted[0]) throw new Error("Failed to create listing");
+  if (savedPaths.length > 0) {
+    await db.insert(schema.listingPhotos).values(savedPaths.map((imagePath, position) => ({ listingId: inserted[0].id, imagePath, position })));
+  }
   // New-listing email alerts go out in the background; a failure or a
   // missing email setup never blocks the listing.
   notifyNewListing({ ...args, id: inserted[0].id, trim: args.trim.trim() || null, location: args.location.trim(), zipCode: args.zipCode }).catch(() => {});
@@ -389,12 +412,15 @@ api.post("/deleteListing", asyncHandler(async (req, res) => {
   const { id } = parseBody(z.object({ id: z.number().int().positive() }), req.body);
   const rows = await db.select().from(schema.listings).where(eq(schema.listings.id, id));
   const row = rows[0];
+  const photoRows = await db.select().from(schema.listingPhotos).where(eq(schema.listingPhotos.listingId, id));
   await db.delete(schema.messages).where(eq(schema.messages.listingId, id));
   await db.delete(schema.sales).where(eq(schema.sales.listingId, id));
   await db.delete(schema.bids).where(eq(schema.bids.listingId, id));
   await db.delete(schema.watches).where(eq(schema.watches.listingId, id));
+  await db.delete(schema.listingPhotos).where(eq(schema.listingPhotos.listingId, id));
   await db.delete(schema.listings).where(eq(schema.listings.id, id));
   if (row?.imagePath) { try { fs.unlinkSync(path.join(uploadsDir(), row.imagePath)); } catch { /* already gone */ } }
+  for (const p of photoRows) { try { fs.unlinkSync(path.join(uploadsDir(), p.imagePath)); } catch { /* already gone */ } }
   res.json({ ok: true });
 }));
 

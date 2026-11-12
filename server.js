@@ -36,7 +36,8 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (req,
   stripeWebhookHandler(req, res).catch(next);
 });
 
-app.use(express.json({ limit: "12mb" }));
+// 100mb: a listing can carry up to 8 photos at ~11 MB of base64 each.
+app.use(express.json({ limit: "100mb" }));
 app.use("/api", api);
 
 // Listing photos (disk storage; see README for the S3 follow-up).

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fileToBase64 } from "./fileToBase64";
 import { api, type ApiResponse } from "./api";
@@ -45,6 +45,36 @@ function CarVisual({ listing, large }: { listing: Listing; large?: boolean }) {
       <span className="font-display font-700 text-6xl font-bold tracking-wide opacity-90">{listing.year}</span>
       <span className="font-display text-2xl uppercase tracking-[0.2em] mt-1">{listing.make} {listing.model}</span>
       <span className="text-xs uppercase tracking-widest text-[#a39d90] mt-2">{listing.location}</span>
+    </div>
+  );
+}
+
+function CarGallery({ listing }: { listing: Listing }) {
+  const photos: string[] = listing.photos?.length ? listing.photos : (listing.imageUrl ? [listing.imageUrl] : []);
+  const [selected, setSelected] = useState(0);
+  const current = photos[Math.min(selected, photos.length - 1)];
+  if (!current) {
+    return (
+      <div className="w-full h-64 sm:h-80 flex flex-col items-center justify-center bg-[#1c1d20] text-[#f4f1ea] relative overflow-hidden" aria-hidden="true">
+        <div className="absolute inset-x-0 bottom-0 h-1.5 bg-[var(--accent-strong)]" />
+        <span className="font-display font-700 text-6xl font-bold tracking-wide opacity-90">{listing.year}</span>
+        <span className="font-display text-2xl uppercase tracking-[0.2em] mt-1">{listing.make} {listing.model}</span>
+        <span className="text-xs uppercase tracking-widest text-[#a39d90] mt-2">{listing.location}</span>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <img src={current} alt={`${listing.year} ${listing.make} ${listing.model} — photo ${Math.min(selected, photos.length - 1) + 1} of ${photos.length}`} className="w-full object-cover h-64 sm:h-80" />
+      {photos.length > 1 && (
+        <div className="flex gap-2 p-3 overflow-x-auto" role="group" aria-label="More photos of this vehicle">
+          {photos.map((src, i) => (
+            <button key={src} type="button" onClick={() => setSelected(i)} aria-label={`View photo ${i + 1} of ${photos.length}`} className={`shrink-0 rounded-lg overflow-hidden border-2 ${i === Math.min(selected, photos.length - 1) ? "border-[var(--accent-strong)]" : "border-transparent"}`}>
+              <img src={src} alt="" className="h-16 w-24 object-cover" loading="lazy" />
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -178,7 +208,7 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
     <div className="pb-10">
       <button type="button" onClick={onClose} className="text-sm font-semibold underline underline-offset-4 mb-3" aria-label="Back to all auctions">← All auctions</button>
       <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl overflow-hidden">
-        <CarVisual listing={listing} large />
+        <CarGallery listing={listing} />
         <div className="p-4 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -319,26 +349,62 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
   );
 }
 
+type PhotoItem = { dataBase64: string; mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; preview: string; name: string };
+const MAX_PHOTOS = 8;
+const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
+const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
 function SellForm({ onDone }: { onDone: (id: number) => void }) {
   const queryClient = useQueryClient();
   const [f, setF] = useState({ year: new Date().getFullYear().toString(), make: "", model: "", trim: "", mileage: "", condition: CONDITIONS[0] as string, titleStatus: TITLES[0] as string, location: "", zipCode: "", description: "", sellerName: "", sellerPhone: "", sellerEmail: "", startingPrice: "", reservePrice: "", buyNowPrice: "", duration: "72", privateSeller: false, noMechanicalIssues: false });
-  const [photo, setPhoto] = useState<{ dataBase64: string; mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; preview: string; name: string } | null>(null);
+  const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [photoErr, setPhotoErr] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState("");
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
 
-  async function onPhoto(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+  async function addFiles(list: FileList | File[]) {
+    const files = Array.from(list);
+    if (files.length === 0) return;
     setPhotoErr("");
-    if (!file) { setPhoto(null); return; }
-    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) { setPhotoErr("Please pick a JPG, PNG, WebP, or GIF picture."); e.target.value = ""; return; }
-    if (file.size > 8 * 1024 * 1024) { setPhotoErr("That picture is over 8 MB — pick a smaller one."); e.target.value = ""; return; }
-    try {
-      const { dataBase64, mimeType } = await fileToBase64(file);
-      setPhoto({ dataBase64, mimeType: mimeType as "image/jpeg" | "image/png" | "image/webp" | "image/gif", preview: URL.createObjectURL(file), name: file.name });
-    } catch {
-      setPhotoErr("Couldn't read that picture — try another file.");
+    const room = MAX_PHOTOS - photos.length;
+    if (files.length > room) {
+      setPhotoErr(room <= 0 ? `Up to ${MAX_PHOTOS} photos per listing.` : `Only room for ${room} more photo${room === 1 ? "" : "s"} — the first ${room} were added.`);
     }
+    const accepted: File[] = [];
+    for (const file of files.slice(0, Math.max(room, 0))) {
+      if (!PHOTO_TYPES.includes(file.type)) { setPhotoErr("Please pick JPG, PNG, WebP, or GIF pictures."); continue; }
+      if (file.size > MAX_PHOTO_BYTES) { setPhotoErr(`"${file.name}" is over 8 MB — pick a smaller one.`); continue; }
+      accepted.push(file);
+    }
+    if (accepted.length === 0) return;
+    try {
+      const converted = await Promise.all(accepted.map(async (file) => {
+        const { dataBase64, mimeType } = await fileToBase64(file);
+        return { dataBase64, mimeType: mimeType as PhotoItem["mimeType"], preview: URL.createObjectURL(file), name: file.name };
+      }));
+      setPhotos((prev) => [...prev, ...converted].slice(0, MAX_PHOTOS));
+    } catch {
+      setPhotoErr("Couldn't read one of those pictures — try another file.");
+    }
+  }
+
+  function removePhoto(i: number) {
+    setPhotos((prev) => {
+      const removed = prev[i];
+      if (removed) URL.revokeObjectURL(removed.preview);
+      return prev.filter((_, j) => j !== i);
+    });
+  }
+
+  function makeMain(i: number) {
+    setPhotos((prev) => {
+      if (i <= 0 || i >= prev.length) return prev;
+      const next = [...prev];
+      const [picked] = next.splice(i, 1);
+      return [picked, ...next];
+    });
   }
 
   const mut = useMutation({
@@ -346,7 +412,7 @@ function SellForm({ onDone }: { onDone: (id: number) => void }) {
       year: Number(f.year), make: f.make, model: f.model, trim: f.trim, mileage: Number(f.mileage),
       condition: f.condition as typeof CONDITIONS[number], titleStatus: f.titleStatus as typeof TITLES[number],
       location: f.location, zipCode: f.zipCode, description: f.description,
-      photo: photo ? { dataBase64: photo.dataBase64, mimeType: photo.mimeType } : null,
+      photos: photos.map((p) => ({ dataBase64: p.dataBase64, mimeType: p.mimeType })),
       sellerName: f.sellerName, sellerPhone: f.sellerPhone, sellerEmail: f.sellerEmail,
       privateSeller: f.privateSeller,
       noMechanicalIssuesConfirmed: f.noMechanicalIssues,
@@ -400,17 +466,34 @@ function SellForm({ onDone }: { onDone: (id: number) => void }) {
         <div><label htmlFor="sf-email" className={labelCls}>Your email (required)</label><input id="sf-email" type="email" required value={f.sellerEmail} onChange={set("sellerEmail")} placeholder="you@example.com" className={inputCls} /></div>
       </div>
       <div className="mt-4">
-        <label htmlFor="sf-photo" className={labelCls}>Photo of the vehicle — upload from your phone or computer</label>
-        <input id="sf-photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={onPhoto} className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-base file:mr-3 file:rounded-lg file:border-0 file:bg-[var(--text)] file:px-3 file:py-1.5 file:text-[var(--bg)] file:font-semibold" aria-describedby="sf-photo-note" />
-        <p id="sf-photo-note" className="text-xs text-[var(--dim)] mt-1">JPG, PNG, WebP, or GIF, up to 8 MB. Optional, but cars with a photo sell faster.</p>
+        <span className={labelCls}>Photos of the vehicle — drag &amp; drop, or tap to pick</span>
+        <div
+          role="button" tabIndex={0} aria-label="Add photos: drop pictures here or tap to choose files"
+          onClick={() => fileInputRef.current?.click()}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInputRef.current?.click(); } }}
+          onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); void addFiles(e.dataTransfer.files); }}
+          className={`mt-1 w-full rounded-xl border-2 border-dashed px-4 py-8 text-center cursor-pointer ${dragOver ? "border-[var(--accent-strong)] bg-[var(--surface2)]" : "border-[var(--border)] bg-[var(--bg)]"}`}
+        >
+          <p className="font-semibold">Drop pictures here, or tap to choose from your phone or computer</p>
+          <p className="text-sm text-[var(--dim)] mt-1">JPG, PNG, WebP, or GIF, up to 8 MB each. Up to {MAX_PHOTOS} photos — the first one is the main photo on the listing card. Optional, but cars with photos sell faster.</p>
+        </div>
+        <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple onChange={(e) => { void addFiles(e.target.files ?? []); e.target.value = ""; }} className="sr-only" aria-label="Choose photos" />
         {photoErr && <p role="alert" className="mt-1 text-sm font-semibold text-[var(--danger)]">{photoErr}</p>}
-        {photo && (
-          <div className="mt-3 flex items-center gap-3">
-            <img src={photo.preview} alt="Preview of the vehicle photo you picked" className="h-24 w-36 object-cover rounded-xl border border-[var(--border)]" />
-            <div className="text-sm">
-              <p className="font-semibold break-all">{photo.name}</p>
-              <button type="button" onClick={() => setPhoto(null)} className="underline underline-offset-4 text-[var(--danger)]" aria-label="Remove the selected photo">Remove photo</button>
-            </div>
+        {photos.length > 0 && (
+          <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {photos.map((p, i) => (
+              <div key={p.preview} className="relative">
+                <img src={p.preview} alt={`Preview ${i + 1}: ${p.name}`} className="h-24 w-full object-cover rounded-xl border border-[var(--border)]" />
+                {i === 0 && <span className="absolute top-1 left-1 text-[10px] font-bold uppercase tracking-widest bg-[var(--accent-strong)] text-black px-1.5 py-0.5 rounded">Main photo</span>}
+                <div className="flex gap-2 mt-1">
+                  <button type="button" onClick={() => removePhoto(i)} className="text-xs underline underline-offset-4 text-[var(--danger)]" aria-label={`Remove ${p.name}`}>Remove</button>
+                  {i > 0 && <button type="button" onClick={() => makeMain(i)} className="text-xs underline underline-offset-4" aria-label={`Make ${p.name} the main photo`}>Make main</button>}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

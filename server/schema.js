@@ -30,6 +30,13 @@ export const listings = pgTable("listings", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const listingPhotos = pgTable("listing_photos", {
+  id: serial("id").primaryKey(),
+  listingId: integer("listing_id").notNull().references(() => listings.id, { onDelete: "cascade" }),
+  imagePath: text("image_path").notNull(), // local file under UPLOADS_DIR, served at /uploads/<name>
+  position: integer("position").notNull().default(0), // 0 = main/cover photo shown on the listing card
+});
+
 export const bids = pgTable("bids", {
   id: serial("id").primaryKey(),
   listingId: integer("listing_id").notNull().references(() => listings.id),
