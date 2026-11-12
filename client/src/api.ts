@@ -32,6 +32,7 @@ export const api = {
   confirmDeposit: (args: { sessionId: string }) =>
     call("confirmDeposit", args) as Promise<{ ok: boolean; alreadyConfirmed?: boolean; placed?: boolean; kind?: string; reason?: string; saleId?: number; accessToken?: string | null; amount?: number; extended?: boolean; newEndsAt?: string; listingId?: number | null }>,
   toggleWatch: (args: { listingId: number }) => call("toggleWatch", args) as Promise<{ watched: boolean }>,
+  removeBid: (args: { listingId: number; bidId: number }) => call("removeBid", args) as Promise<{ ok: true }>,
   deleteListing: (args: { id: number }) => call("deleteListing", args) as Promise<{ ok: true }>,
   listMyMessages: (args: { accessCode: string }) => call("listMyMessages", args) as Promise<{ messages: any[] }>,
   getSaleCheckout: (args: { accessCode: string }) => call("getSaleCheckout", args) as Promise<any>,

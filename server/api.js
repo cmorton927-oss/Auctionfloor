@@ -527,6 +527,22 @@ api.post("/confirmDeposit", asyncHandler(async (req, res) => {
   return res.json({ ok: true, placed: true, kind: "bid", amount, extended, newEndsAt: iso(newEndsAt), listingId });
 }));
 
+// Owner-only: remove one bid from a live listing (e.g. a test bid, or a
+// bid placed before bidder verification existed). Refuses once the
+// auction has closed into a sale — a sold car's bids are part of the
+// record. Current bid / high bidder / Buy Now visibility are all
+// derived from the bids table, so they update automatically.
+api.post("/removeBid", requireOwner, asyncHandler(async (req, res) => {
+  const args = parseBody(z.object({ listingId: z.number().int().positive(), bidId: z.number().int().positive() }), req.body);
+  const rows = await db.select().from(schema.bids).where(eq(schema.bids.id, args.bidId));
+  const bid = rows[0];
+  if (!bid || bid.listingId !== args.listingId) throw new Error("Bid not found on that listing.");
+  const saleRows = await db.select().from(schema.sales).where(eq(schema.sales.listingId, args.listingId));
+  if (saleRows.length > 0) throw new Error("That auction already closed — bids can't be removed after a sale.");
+  await db.delete(schema.bids).where(eq(schema.bids.id, args.bidId));
+  res.json({ ok: true });
+}));
+
 api.post("/toggleWatch", asyncHandler(async (req, res) => {
   const { listingId } = parseBody(z.object({ listingId: z.number().int().positive() }), req.body);
   const existing = await db.select().from(schema.watches).where(eq(schema.watches.listingId, listingId));

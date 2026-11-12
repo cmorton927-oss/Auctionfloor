@@ -35,7 +35,11 @@ standard stack that runs on Render:
   the pending bid — re-checking that the auction is still live and the
   bid still meets the minimum. Verification is per-email and permanent;
   `/api/bidderStatus` lets the bid form show the right note. Confirm is
-  idempotent per deposit session.
+  idempotent per deposit session. NOTE: a manual-capture session reports
+  `payment_status: "unpaid"` until capture (and we never capture), so
+  the confirm signal is session `status: "complete"` plus a
+  PaymentIntent — not `payment_status: "paid"` (fixed 2026-11-12 after
+  the first live card test exposed it).
 - Tabs: Live now / Ending < 24h / Watchlist / Ended / All, plus search,
   condition filter, and sort (ending soonest, price, newest). Detail pages
   with specs, seller name only, and full bid history.

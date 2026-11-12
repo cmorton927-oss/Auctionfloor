@@ -246,6 +246,15 @@ function DetailView({ id, now, onClose, depositReturn }: { id: number; now: numb
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["auctions"] }); onClose(); },
   });
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // The owner can remove a single bid (test bid, or one placed before
+  // verification existed). Only the owner sees the button.
+  const ownerStatus = useQuery({ queryKey: ["ownerStatus"], queryFn: () => api.ownerStatus() });
+  const [confirmRemoveBid, setConfirmRemoveBid] = useState<number | null>(null);
+  const removeBidMut = useMutation({
+    mutationFn: (bidId: number) => api.removeBid({ listingId: id, bidId }),
+    onSuccess: () => { setConfirmRemoveBid(null); setMsg({ kind: "ok", text: "Bid removed." }); queryClient.invalidateQueries({ queryKey: ["auction", id] }); queryClient.invalidateQueries({ queryKey: ["auctions"] }); },
+    onError: (e) => { setConfirmRemoveBid(null); setMsg({ kind: "err", text: e instanceof Error ? e.message : "Couldn't remove that bid." }); },
+  });
 
   if (detail.isPending) return <div className="p-6 text-center text-[var(--dim)]">Loading auction…</div>;
   if (detail.error || !detail.data) return <div className="p-6 text-center"><p className="text-[var(--danger)]">Couldn't load this auction.</p><button type="button" onClick={onClose} className="mt-3 underline">Back to auctions</button></div>;
@@ -389,7 +398,19 @@ function DetailView({ id, now, onClose, depositReturn }: { id: number; now: numb
                 {bids.map((b, i) => (
                   <li key={b.id} className="py-2.5 flex items-center justify-between text-sm">
                     <span className="font-semibold">{b.bidderName}{i === 0 ? <span className="ml-2 text-[11px] uppercase tracking-widest bg-[var(--accent-strong)] text-black px-2 py-0.5 rounded-full">High bid</span> : null}</span>
-                    <span className="tabular font-semibold">{money(b.amount)} <span className="text-[var(--dim)] font-normal">· {new Date(b.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span></span>
+                    <span className="flex items-center gap-3">
+                      <span className="tabular font-semibold">{money(b.amount)} <span className="text-[var(--dim)] font-normal">· {new Date(b.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span></span>
+                      {ownerStatus.data?.isOwner && (
+                        confirmRemoveBid === b.id ? (
+                          <span className="flex gap-2 items-center">
+                            <button type="button" onClick={() => removeBidMut.mutate(b.id)} disabled={removeBidMut.isPending} className="px-2 py-1 rounded-lg bg-[var(--danger)] text-white text-xs font-semibold disabled:opacity-50" aria-label={`Confirm remove this ${money(b.amount)} bid`}>Remove?</button>
+                            <button type="button" onClick={() => setConfirmRemoveBid(null)} className="underline text-xs" aria-label="Keep this bid">Keep</button>
+                          </span>
+                        ) : (
+                          <button type="button" onClick={() => setConfirmRemoveBid(b.id)} className="text-xs text-[var(--danger)] underline underline-offset-2" aria-label={`Remove this ${money(b.amount)} bid`}>Remove</button>
+                        )
+                      )}
+                    </span>
                   </li>
                 ))}
               </ul>
