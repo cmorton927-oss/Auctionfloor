@@ -338,6 +338,13 @@ api.get("/unsubscribeAlerts", asyncHandler(async (req, res) => {
     : "<!doctype html><title>Link not found — AuctionFloor</title><body style=\"font-family:sans-serif;text-align:center;padding:80px 20px\"><h1>That link isn't valid anymore.</h1><p>You may already be unsubscribed. <a href=\"/\">Back to AuctionFloor</a></p></body>");
 }));
 
+// Owner-only: how many people are signed up for new-listing email alerts.
+// Signups send the owner no notification — this count is the way to check.
+api.post("/alertSubscriberCount", requireOwner, asyncHandler(async (req, res) => {
+  const rows = await db.select().from(schema.alertSubscribers);
+  res.json({ activeCount: rows.filter((r) => r.active).length, totalCount: rows.length });
+}));
+
 api.post("/placeBid", asyncHandler(async (req, res) => {
   const args = parseBody(z.object({
     listingId: z.number().int().positive(),

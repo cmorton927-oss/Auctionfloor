@@ -525,6 +525,19 @@ function MessageCard({ m, onOpen }: { m: Message; onOpen: () => void }) {
   );
 }
 
+function AlertSubscriberCount() {
+  const q = useQuery({ queryKey: ["alertSubscriberCount"], queryFn: () => api.alertSubscriberCount(), refetchInterval: 15000 });
+  return (
+    <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4">
+      <p className="font-display text-xl font-bold uppercase">New-listing alert signups</p>
+      {q.isPending ? <p className="text-sm text-[var(--dim)] mt-1">Loading…</p>
+        : q.error ? <p className="text-sm text-[var(--danger)] mt-1">Couldn't load the count.</p>
+        : <p className="text-sm mt-1"><strong className="font-display text-3xl">{q.data.activeCount}</strong> {q.data.activeCount === 1 ? "person" : "people"} signed up for an email when a new car is listed.{q.data.totalCount > q.data.activeCount ? ` (${q.data.totalCount - q.data.activeCount} unsubscribed.)` : ""}</p>}
+      <p className="text-xs text-[var(--dim)] mt-1">Signups don't send you any email — check this count anytime.</p>
+    </div>
+  );
+}
+
 function OwnerSettingsForm() {
   const queryClient = useQueryClient();
   const contact = useQuery({ queryKey: ["ownerContact"], queryFn: () => api.getOwnerContact({}) });
@@ -925,6 +938,7 @@ function MessagesView({ onOpenListing }: { onOpenListing: (id: number) => void }
       ) : (
         <div className="mt-4 flex flex-col gap-4">
           <OwnerSettingsForm />
+          <AlertSubscriberCount />
           <DeliveryRequestsPanel />
           {owner.isPending ? <p className="py-8 text-center text-[var(--dim)]">Loading fee notices…</p>
             : owner.error ? <p className="py-8 text-center text-[var(--danger)]">Couldn't load fee notices. <button type="button" className="underline" onClick={() => owner.refetch()} aria-label="Retry loading fee notices">Retry</button></p>
