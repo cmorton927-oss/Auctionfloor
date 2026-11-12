@@ -43,6 +43,7 @@ export const bids = pgTable("bids", {
   bidderName: text("bidder_name").notNull(),
   bidderPhone: text("bidder_phone"),
   bidderEmail: text("bidder_email"),
+  bidderPrivate: boolean("bidder_private").notNull().default(false), // when true, public views show only the bidder's initials; the seller still sees the real name if they win
   amount: integer("amount").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

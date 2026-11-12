@@ -155,11 +155,12 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
   const [bidderName, setBidderName] = useState(() => localStorage.getItem("bidderName") ?? "");
   const [bidderPhone, setBidderPhone] = useState(() => localStorage.getItem("bidderPhone") ?? "");
   const [bidderEmail, setBidderEmail] = useState(() => localStorage.getItem("bidderEmail") ?? "");
+  const [bidPrivate, setBidPrivate] = useState(false);
   const [amount, setAmount] = useState("");
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const bidMut = useMutation({
-    mutationFn: () => api.placeBid({ listingId: id, bidderName: bidderName.trim(), bidderPhone: bidderPhone.trim(), bidderEmail: bidderEmail.trim(), amount: Number(amount) }),
+    mutationFn: () => api.placeBid({ listingId: id, bidderName: bidderName.trim(), bidderPhone: bidderPhone.trim(), bidderEmail: bidderEmail.trim(), bidderPrivate: bidPrivate, amount: Number(amount) }),
     onSuccess: (r) => {
       localStorage.setItem("bidderName", bidderName.trim());
       localStorage.setItem("bidderPhone", bidderPhone.trim());
@@ -177,7 +178,7 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
   });
   const [confirmBuyNow, setConfirmBuyNow] = useState(false);
   const buyNowMut = useMutation({
-    mutationFn: () => api.buyNow({ listingId: id, buyerName: bidderName.trim(), buyerPhone: bidderPhone.trim(), bidderEmail: bidderEmail.trim() }),
+    mutationFn: () => api.buyNow({ listingId: id, buyerName: bidderName.trim(), buyerPhone: bidderPhone.trim(), bidderEmail: bidderEmail.trim(), bidderPrivate: bidPrivate }),
     onSuccess: (r) => {
       localStorage.setItem("bidderName", bidderName.trim());
       localStorage.setItem("bidderPhone", bidderPhone.trim());
@@ -285,6 +286,13 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
                 <button type="submit" disabled={bidMut.isPending} className="self-end py-3 px-6 rounded-xl bg-[var(--accent-strong)] text-black font-display text-xl font-bold uppercase tracking-wide disabled:opacity-50" aria-label="Place bid">
                   {bidMut.isPending ? "Bidding…" : "Place bid"}
                 </button>
+              </div>
+              <div className="flex items-start gap-3 mt-3">
+                <input id="bid-private" type="checkbox" checked={bidPrivate} onChange={(e) => setBidPrivate(e.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-black" />
+                <label htmlFor="bid-private" className="text-sm">
+                  <span className="block font-semibold">Bid privately</span>
+                  <span className="block text-xs text-[var(--dim)] mt-0.5">Only your initials (like C.M.) will show on the bid history and as high bidder. If you win, the seller still gets your real name and contact info so you can arrange pickup.</span>
+                </label>
               </div>
               <p className="text-xs text-[var(--dim)] mt-2">If you win, an invoice for the winning bid plus the buyer fee plus an administrative fee (2.9% of the subtotal + $0.30) is sent to you by text and email to pay by card through Stripe (live mode — a real card payment), and you and the seller get each other's contact info. Buyer fee if you win: {buyerFeeRate(Number(amount) || price)} of the winning bid ({money(buyerFeeFor(Number(amount) || price))} at {money(Number(amount) || price)}), plus an administrative fee of {moneyCents(adminFeeCentsFor((Number(amount) || price) + buyerFeeFor(Number(amount) || price)))}. The seller is paid after Stripe verifies your invoice payment and both sides confirm the pickup.</p>
               <div className="flex flex-wrap gap-2 mt-3">

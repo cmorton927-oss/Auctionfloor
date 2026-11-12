@@ -65,6 +65,20 @@ function uploadsDir() {
   return process.env.UPLOADS_DIR || path.join(process.cwd(), "uploads");
 }
 
+// Private bidding: a private bidder shows publicly as initials only
+// ("Charles Morton" -> "C.M.", "Charles" -> "C."). The real name stays
+// in the bids table and is what the seller/owner see on a win.
+function initialsOf(name) {
+  const parts = String(name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "Private bidder";
+  if (parts.length === 1) return parts[0][0].toUpperCase() + ".";
+  return parts[0][0].toUpperCase() + "." + parts[parts.length - 1][0].toUpperCase() + ".";
+}
+function publicBidderName(bid) {
+  if (!bid) return null;
+  return bid.bidderPrivate ? initialsOf(bid.bidderName) : bid.bidderName;
+}
+
 async function toListingOut(row, bidRows, watchedIds, sale, photoPaths = []) {
   const sorted = [...bidRows].sort((a, b) => b.amount - a.amount);
   const top = sorted[0];
@@ -98,7 +112,7 @@ async function toListingOut(row, bidRows, watchedIds, sale, photoPaths = []) {
     reserveMet: row.reservePrice == null ? true : (currentBid != null && currentBid >= row.reservePrice),
     currentBid,
     bidCount: bidRows.length,
-    highBidder: top ? top.bidderName : null,
+    highBidder: publicBidderName(top),
     endsAt: iso(row.endsAt),
     createdAt: iso(row.createdAt),
     isEnded: new Date(row.endsAt).getTime() <= Date.now(),
@@ -110,7 +124,7 @@ async function toListingOut(row, bidRows, watchedIds, sale, photoPaths = []) {
           buyerFee: sale.buyerFee ?? null,
           sellerFee: sale.sellerFee ?? null,
           processingFee: sale.processingFee ?? null,
-          winnerName: sale.winnerName ?? null,
+          winnerName: top && sale.winnerName === top.bidderName ? publicBidderName(top) : (sale.winnerName ?? null),
           stripePaymentStatus: sale.stripePaymentStatus ?? null,
           invoicePaidAt: iso(sale.invoicePaidAt),
         }
@@ -259,7 +273,7 @@ api.post("/getAuction", asyncHandler(async (req, res) => {
   const photoRows = await db.select().from(schema.listingPhotos).where(eq(schema.listingPhotos.listingId, id)).orderBy(asc(schema.listingPhotos.position));
   const listing = await toListingOut(row, allForListing, watchedIds, saleRows[0], photoRows.map((p) => p.imagePath));
   const bidRows = await db.select().from(schema.bids).where(eq(schema.bids.listingId, id)).orderBy(desc(schema.bids.createdAt));
-  res.json({ listing, bids: bidRows.map((b) => ({ id: b.id, bidderName: b.bidderName, amount: b.amount, createdAt: iso(b.createdAt) })) });
+  res.json({ listing, bids: bidRows.map((b) => ({ id: b.id, bidderName: publicBidderName(b), bidderPrivate: b.bidderPrivate ?? false, amount: b.amount, createdAt: iso(b.createdAt) })) });
 }));
 
 api.post("/createListing", asyncHandler(async (req, res) => {
@@ -349,6 +363,7 @@ api.post("/placeBid", asyncHandler(async (req, res) => {
   const args = parseBody(z.object({
     listingId: z.number().int().positive(),
     bidderName: z.string().min(1).max(80), bidderPhone: phoneField, bidderEmail: emailField,
+    bidderPrivate: z.boolean().default(false),
     amount: z.number().int().min(1).max(10000000),
   }), req.body);
   const rows = await db.select().from(schema.listings).where(eq(schema.listings.id, args.listingId));
@@ -361,7 +376,7 @@ api.post("/placeBid", asyncHandler(async (req, res) => {
   if (args.amount < minimum) throw new Error(`Bid must be at least $${minimum.toLocaleString()}`);
   await db.insert(schema.bids).values({
     listingId: args.listingId, bidderName: args.bidderName.trim(),
-    bidderPhone: args.bidderPhone.trim(), bidderEmail: args.bidderEmail.trim(), amount: args.amount,
+    bidderPhone: args.bidderPhone.trim(), bidderEmail: args.bidderEmail.trim(), bidderPrivate: args.bidderPrivate, amount: args.amount,
   });
   let extended = false;
   let newEndsAt = listing.endsAt;
@@ -377,6 +392,7 @@ api.post("/buyNow", asyncHandler(async (req, res) => {
   const args = parseBody(z.object({
     listingId: z.number().int().positive(),
     buyerName: z.string().min(1).max(80), buyerPhone: phoneField, buyerEmail: emailField,
+    bidderPrivate: z.boolean().default(false),
   }), req.body);
   const rows = await db.select().from(schema.listings).where(eq(schema.listings.id, args.listingId));
   const listing = rows[0];
@@ -395,7 +411,7 @@ api.post("/buyNow", asyncHandler(async (req, res) => {
   await db.update(schema.listings).set({ endsAt: new Date(), reservePrice: null }).where(eq(schema.listings.id, args.listingId));
   await db.insert(schema.bids).values({
     listingId: args.listingId, bidderName: args.buyerName.trim(),
-    bidderPhone: args.buyerPhone.trim(), bidderEmail: args.buyerEmail.trim(), amount: listing.buyNowPrice,
+    bidderPhone: args.buyerPhone.trim(), bidderEmail: args.buyerEmail.trim(), bidderPrivate: args.bidderPrivate, amount: listing.buyNowPrice,
   });
   await finalizeEndedAuctions();
   const saleRows = await db.select().from(schema.sales).where(eq(schema.sales.listingId, args.listingId));
