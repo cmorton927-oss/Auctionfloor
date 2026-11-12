@@ -23,7 +23,7 @@ import {
 import { applyVerifiedStripePayment, createCheckoutForSale, finalizeEndedAuctions, releasePayoutIfReady } from "./finalize.js";
 import { buyerSellerOwnerEntries, getOwnerSettingsRow, notifySaleParties } from "./notify.js";
 import { createFirstOwner, loginOwner, logoutOwner, ownerCookieOptions, ownerExists, ownerFromRequest, OWNER_COOKIE } from "./auth.js";
-import { getStripe, retrieveCheckoutSession, stripeConfigured } from "./stripe.js";
+import { createDepositCheckoutSession, getStripe, retrieveCheckoutSession, stripeConfigured } from "./stripe.js";
 import { checkLocalRadius } from "./geo.js";
 import { notifyNewListing, subscribeAlert, unsubscribeAlert } from "./alerts.js";
 
@@ -77,6 +77,13 @@ function initialsOf(name) {
 function publicBidderName(bid) {
   if (!bid) return null;
   return bid.bidderPrivate ? initialsOf(bid.bidderName) : bid.bidderName;
+}
+
+// Bidder verification: has this email completed the one-time $10
+// refundable deposit? Verification is per-email and permanent.
+async function isBidderVerified(email) {
+  const rows = await db.select().from(schema.verifiedBidders).where(eq(schema.verifiedBidders.email, String(email ?? "").trim().toLowerCase())).limit(1);
+  return rows.length > 0;
 }
 
 async function toListingOut(row, bidRows, watchedIds, sale, photoPaths = []) {
@@ -374,6 +381,17 @@ api.post("/placeBid", asyncHandler(async (req, res) => {
   const top = bidRows[0];
   const minimum = top ? top.amount + 1 : listing.startingPrice;
   if (args.amount < minimum) throw new Error(`Bid must be at least $${minimum.toLocaleString()}`);
+  // First bid from this email: verify the card with the one-time $10
+  // refundable deposit first. The bid itself rides in the deposit
+  // session's metadata and is placed by /confirmDeposit on return.
+  if (!(await isBidderVerified(args.bidderEmail))) {
+    const dep = await createDepositCheckoutSession({
+      kind: "bid", listingId: args.listingId,
+      bidderName: args.bidderName.trim(), bidderPhone: args.bidderPhone.trim(), bidderEmail: args.bidderEmail.trim(),
+      bidderPrivate: args.bidderPrivate, amount: args.amount,
+    });
+    return res.json({ needsDeposit: true, checkoutUrl: dep.url, sessionId: dep.id });
+  }
   await db.insert(schema.bids).values({
     listingId: args.listingId, bidderName: args.bidderName.trim(),
     bidderPhone: args.bidderPhone.trim(), bidderEmail: args.bidderEmail.trim(), bidderPrivate: args.bidderPrivate, amount: args.amount,
@@ -404,6 +422,17 @@ api.post("/buyNow", asyncHandler(async (req, res) => {
   const bidRows = await db.select().from(schema.bids).where(eq(schema.bids.listingId, args.listingId)).orderBy(desc(schema.bids.amount));
   const top = bidRows[0];
   if (top && top.amount >= listing.buyNowPrice) throw new Error("Bidding has already passed the Buy Now price");
+  // First purchase from this email: verify the card with the one-time $10
+  // refundable deposit first. The Buy Now rides in the deposit session's
+  // metadata and is executed by /confirmDeposit on return.
+  if (!(await isBidderVerified(args.buyerEmail))) {
+    const dep = await createDepositCheckoutSession({
+      kind: "buynow", listingId: args.listingId,
+      bidderName: args.buyerName.trim(), bidderPhone: args.buyerPhone.trim(), bidderEmail: args.buyerEmail.trim(),
+      bidderPrivate: args.bidderPrivate, amount: listing.buyNowPrice,
+    });
+    return res.json({ needsDeposit: true, checkoutUrl: dep.url, sessionId: dep.id });
+  }
   // Close the auction now, record the Buy Now purchase as the winning bid,
   // and let the normal finalize sweep create the sale, invoice, win
   // messages, and Stripe checkout exactly like a won bid. The reserve is
@@ -418,6 +447,79 @@ api.post("/buyNow", asyncHandler(async (req, res) => {
   const sale = saleRows[0];
   if (!sale || sale.status !== "sold") throw new Error("The Buy Now purchase couldn't be completed — try again or place a bid.");
   res.json({ ok: true, saleId: sale.id, accessToken: sale.accessToken ?? null, amount: sale.amount ?? listing.buyNowPrice });
+}));
+
+// Has this email completed the one-time $10 deposit? Lets the bid form
+// show the right note before the bidder tries to bid.
+api.post("/bidderStatus", asyncHandler(async (req, res) => {
+  const email = String(req.body?.email ?? "").trim().toLowerCase();
+  res.json({ verified: email.includes("@") && (await isBidderVerified(email)) });
+}));
+
+// Confirm a $10 bidder deposit after Stripe: verify the session with
+// Stripe directly, mark the email verified, then place the pending bid
+// (or execute the pending Buy Now) from the session metadata, re-checking
+// that the auction is still live and the bid still meets the minimum.
+// Idempotent: the same deposit session confirms only once.
+api.post("/confirmDeposit", asyncHandler(async (req, res) => {
+  const { sessionId } = parseBody(z.object({ sessionId: z.string().min(1).max(200) }), req.body);
+  const session = await retrieveCheckoutSession(sessionId);
+  if (session.status !== "complete" || session.paymentStatus !== "paid") {
+    throw new Error("That deposit hasn't gone through yet — if you just paid, wait a moment and try again.");
+  }
+  const md = session.metadata ?? {};
+  if (md.auctionfloor_deposit !== "bidder_verification") throw new Error("That checkout wasn't a bidder deposit.");
+  const email = String(md.bidder_email ?? "").trim().toLowerCase();
+  if (!email) throw new Error("That deposit has no bidder email on it.");
+  const listingId = Number(md.listing_id);
+  const existing = await db.select().from(schema.verifiedBidders).where(eq(schema.verifiedBidders.email, email)).limit(1);
+  if (existing.length > 0 && existing[0].stripeCheckoutSessionId === sessionId) {
+    return res.json({ ok: true, alreadyConfirmed: true, placed: false, listingId: Number.isFinite(listingId) ? listingId : null });
+  }
+  await db.insert(schema.verifiedBidders).values({ email, stripeCheckoutSessionId: sessionId }).onConflictDoNothing();
+  const rows = await db.select().from(schema.listings).where(eq(schema.listings.id, listingId));
+  const listing = rows[0];
+  if (!listing) return res.json({ ok: true, placed: false, reason: "That listing is gone — but your card is verified for next time.", listingId });
+  if (new Date(listing.endsAt).getTime() <= Date.now()) {
+    return res.json({ ok: true, placed: false, reason: "That auction ended while you were verifying — your card is verified for next time.", listingId });
+  }
+  if (md.kind === "buynow") {
+    const existingSale = await db.select().from(schema.sales).where(eq(schema.sales.listingId, listingId));
+    if (existingSale.length > 0) return res.json({ ok: true, placed: false, reason: "That auction already closed — but your card is verified for next time.", listingId });
+    if (listing.buyNowPrice == null) return res.json({ ok: true, placed: false, reason: "That listing no longer has a Buy Now price.", listingId });
+    const buyBidRows = await db.select().from(schema.bids).where(eq(schema.bids.listingId, listingId)).orderBy(desc(schema.bids.amount));
+    const buyTop = buyBidRows[0];
+    if (buyTop && buyTop.amount >= listing.buyNowPrice) return res.json({ ok: true, placed: false, reason: "Bidding passed the Buy Now price while you were verifying.", listingId });
+    await db.update(schema.listings).set({ endsAt: new Date(), reservePrice: null }).where(eq(schema.listings.id, listingId));
+    await db.insert(schema.bids).values({
+      listingId, bidderName: String(md.bidder_name ?? ""), bidderPhone: String(md.bidder_phone ?? ""),
+      bidderEmail: email, bidderPrivate: md.bidder_private === "1", amount: listing.buyNowPrice,
+    });
+    await finalizeEndedAuctions();
+    const saleRows = await db.select().from(schema.sales).where(eq(schema.sales.listingId, listingId));
+    const sale = saleRows[0];
+    if (!sale || sale.status !== "sold") return res.json({ ok: true, placed: false, reason: "The Buy Now purchase couldn't be completed — try again or place a bid.", listingId });
+    return res.json({ ok: true, placed: true, kind: "buynow", saleId: sale.id, accessToken: sale.accessToken ?? null, amount: sale.amount ?? listing.buyNowPrice, listingId });
+  }
+  const amount = Number(md.amount);
+  const bidRows = await db.select().from(schema.bids).where(eq(schema.bids.listingId, listingId)).orderBy(desc(schema.bids.amount));
+  const top = bidRows[0];
+  const minimum = top ? top.amount + 1 : listing.startingPrice;
+  if (!Number.isFinite(amount) || amount < minimum) {
+    return res.json({ ok: true, placed: false, reason: `The minimum bid moved to $${minimum.toLocaleString()} while you were verifying — your card is verified now, so just place your bid again.`, listingId });
+  }
+  await db.insert(schema.bids).values({
+    listingId, bidderName: String(md.bidder_name ?? ""), bidderPhone: String(md.bidder_phone ?? ""),
+    bidderEmail: email, bidderPrivate: md.bidder_private === "1", amount,
+  });
+  let extended = false;
+  let newEndsAt = listing.endsAt;
+  if (new Date(listing.endsAt).getTime() - Date.now() < 2 * 60 * 1000) {
+    newEndsAt = new Date(Date.now() + 2 * 60 * 1000);
+    await db.update(schema.listings).set({ endsAt: newEndsAt }).where(eq(schema.listings.id, listingId));
+    extended = true;
+  }
+  return res.json({ ok: true, placed: true, kind: "bid", amount, extended, newEndsAt: iso(newEndsAt), listingId });
 }));
 
 api.post("/toggleWatch", asyncHandler(async (req, res) => {

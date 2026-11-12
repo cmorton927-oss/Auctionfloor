@@ -60,6 +60,57 @@ export async function createCheckoutSession(listing, sale, car) {
   };
 }
 
+// Create a $10 bidder-deposit Checkout Session: payment mode with manual
+// capture, so Stripe authorizes $10 (proving the card is good) but never
+// captures it — the hold releases automatically (~7 days) and no fee is
+// charged. The pending bid/Buy Now rides in session metadata so the
+// confirm step can place it after the bidder returns.
+// `pending`: { kind: "bid" | "buynow", listingId, bidderName,
+//   bidderPhone, bidderEmail, bidderPrivate, amount }
+export async function createDepositCheckoutSession(pending) {
+  const stripe = getStripe();
+  if (!stripe) throw new Error("Stripe is not configured yet — the owner needs to set STRIPE_SECRET_KEY.");
+  const base = appUrl();
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    payment_method_types: ["card"],
+    payment_intent_data: { capture_method: "manual" },
+    success_url: `${base}/?deposit=success&session_id={CHECKOUT_SESSION_ID}&listing=${pending.listingId}`,
+    cancel_url: `${base}/?deposit=cancelled&listing=${pending.listingId}`,
+    customer_email: pending.bidderEmail || undefined,
+    line_items: [
+      {
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: "AuctionFloor bidder deposit — $10 (refundable)",
+            description: "One-time card check before your first bid. This is a temporary $10 hold — never charged — and drops off your card automatically.",
+          },
+          unit_amount: 1000,
+        },
+        quantity: 1,
+      },
+    ],
+    metadata: {
+      auctionfloor_deposit: "bidder_verification",
+      kind: pending.kind,
+      listing_id: String(pending.listingId),
+      bidder_name: pending.bidderName,
+      bidder_phone: pending.bidderPhone,
+      bidder_email: pending.bidderEmail,
+      bidder_private: pending.bidderPrivate ? "1" : "0",
+      amount: String(pending.amount ?? ""),
+      source: "auctionfloor",
+    },
+  });
+  return {
+    id: session.id,
+    url: session.url,
+    paymentStatus: session.payment_status,
+    livemode: session.livemode,
+  };
+}
+
 // Re-read a Checkout Session directly from Stripe.
 export async function retrieveCheckoutSession(sessionId) {
   const stripe = getStripe();
@@ -72,5 +123,6 @@ export async function retrieveCheckoutSession(sessionId) {
     paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : "",
     amountTotalCents: session.amount_total ?? 0,
     livemode: session.livemode,
+    metadata: session.metadata ?? {},
   };
 }

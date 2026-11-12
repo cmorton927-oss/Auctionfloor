@@ -136,3 +136,14 @@ export const alertSubscribers = pgTable("alert_subscribers", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   unsubscribedAt: timestamp("unsubscribed_at"),
 });
+
+// Bidders verified by the one-time $10 refundable deposit (manual-capture
+// Checkout Session — authorized, never captured). One row per email;
+// once verified, the bidder never deposits again.
+export const verifiedBidders = pgTable("verified_bidders", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  verifiedAt: timestamp("verified_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

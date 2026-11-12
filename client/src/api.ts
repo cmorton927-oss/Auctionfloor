@@ -25,9 +25,12 @@ export const api = {
   getAuction: (args: { id: number }) => call("getAuction", args) as Promise<{ listing: any; bids: any[] }>,
   createListing: (args: Record<string, unknown>) => call("createListing", args) as Promise<{ id: number }>,
   placeBid: (args: Record<string, unknown>) =>
-    call("placeBid", args) as Promise<{ ok: true; extended: boolean; newEndsAt: string }>,
+    call("placeBid", args) as Promise<{ ok?: boolean; extended?: boolean; newEndsAt?: string; needsDeposit?: boolean; checkoutUrl?: string; sessionId?: string }>,
   buyNow: (args: Record<string, unknown>) =>
-    call("buyNow", args) as Promise<{ ok: true; saleId: number; accessToken: string | null; amount: number }>,
+    call("buyNow", args) as Promise<{ ok?: boolean; saleId?: number; accessToken?: string | null; amount?: number; needsDeposit?: boolean; checkoutUrl?: string; sessionId?: string }>,
+  bidderStatus: (args: { email: string }) => call("bidderStatus", args) as Promise<{ verified: boolean }>,
+  confirmDeposit: (args: { sessionId: string }) =>
+    call("confirmDeposit", args) as Promise<{ ok: boolean; alreadyConfirmed?: boolean; placed?: boolean; kind?: string; reason?: string; saleId?: number; accessToken?: string | null; amount?: number; extended?: boolean; newEndsAt?: string; listingId?: number | null }>,
   toggleWatch: (args: { listingId: number }) => call("toggleWatch", args) as Promise<{ watched: boolean }>,
   deleteListing: (args: { id: number }) => call("deleteListing", args) as Promise<{ ok: true }>,
   listMyMessages: (args: { accessCode: string }) => call("listMyMessages", args) as Promise<{ messages: any[] }>,

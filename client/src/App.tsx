@@ -149,7 +149,7 @@ function AlertSignup() {
   );
 }
 
-function DetailView({ id, now, onClose }: { id: number; now: number; onClose: () => void }) {
+function DetailView({ id, now, onClose, depositReturn }: { id: number; now: number; onClose: () => void; depositReturn?: { sessionId: string } | { cancelled: true } | null }) {
   const queryClient = useQueryClient();
   const detail = useQuery({ queryKey: ["auction", id], queryFn: () => api.getAuction({ id }), refetchInterval: 5000 });
   const [bidderName, setBidderName] = useState(() => localStorage.getItem("bidderName") ?? "");
@@ -158,6 +158,45 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
   const [bidPrivate, setBidPrivate] = useState(false);
   const [amount, setAmount] = useState("");
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [verified, setVerified] = useState<boolean | null>(null);
+  const [depositHandled, setDepositHandled] = useState(false);
+
+  // Returning from the $10 deposit checkout: confirm it with the server
+  // (which places the pending bid / Buy Now) and show the outcome.
+  useEffect(() => {
+    if (!depositReturn || depositHandled) return;
+    setDepositHandled(true);
+    if ("cancelled" in depositReturn) {
+      setMsg({ kind: "err", text: "Deposit cancelled — your bid wasn't placed. You can try again anytime." });
+      return;
+    }
+    setMsg({ kind: "ok", text: "Confirming your deposit…" });
+    api.confirmDeposit({ sessionId: depositReturn.sessionId })
+      .then((r) => {
+        if (r.alreadyConfirmed) {
+          setMsg({ kind: "ok", text: "Your card is already verified." });
+        } else if (r.placed && r.kind === "buynow") {
+          setMsg({ kind: "ok", text: `You bought it for ${money(r.amount ?? 0)}! Your invoice is on its way by text and email — pay it by card on Stripe. Your Messages access code is ${r.accessToken ?? "in your win message"}.` });
+        } else if (r.placed) {
+          setMsg({ kind: "ok", text: r.extended ? "You're the high bidder! Your card is verified for future bids too. Bid in the final minutes — clock extended to 2:00." : "You're the high bidder! Your card is verified for future bids too." });
+          setAmount("");
+        } else {
+          setMsg({ kind: "err", text: r.reason ?? "Your card is verified, but the bid couldn't be placed — try again." });
+        }
+        setVerified(true);
+        queryClient.invalidateQueries({ queryKey: ["auction", id] });
+        queryClient.invalidateQueries({ queryKey: ["auctions"] });
+      })
+      .catch((e) => setMsg({ kind: "err", text: e instanceof Error ? e.message : "Couldn't confirm the deposit — try bidding again." }));
+  }, [depositReturn, depositHandled, id, queryClient]);
+
+  async function checkVerified(email: string) {
+    const e = email.trim().toLowerCase();
+    if (!e.includes("@")) { setVerified(null); return; }
+    try { const r = await api.bidderStatus({ email: e }); setVerified(r.verified); } catch { setVerified(null); }
+  }
+  // If the email is already filled in (saved from last time), check it once.
+  useEffect(() => { if (bidderEmail) void checkVerified(bidderEmail); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const bidMut = useMutation({
     mutationFn: () => api.placeBid({ listingId: id, bidderName: bidderName.trim(), bidderPhone: bidderPhone.trim(), bidderEmail: bidderEmail.trim(), bidderPrivate: bidPrivate, amount: Number(amount) }),
@@ -165,6 +204,13 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
       localStorage.setItem("bidderName", bidderName.trim());
       localStorage.setItem("bidderPhone", bidderPhone.trim());
       localStorage.setItem("bidderEmail", bidderEmail.trim());
+      if (r.needsDeposit && r.checkoutUrl) {
+        // First bid from this email: Stripe verifies the card with the
+        // one-time $10 refundable deposit, then sends them back here.
+        setMsg({ kind: "ok", text: "First bid — sending you to Stripe for the one-time $10 refundable deposit…" });
+        window.location.href = r.checkoutUrl;
+        return;
+      }
       setMsg({ kind: "ok", text: r.extended ? "You're the high bidder! Bid in the final minutes — clock extended to 2:00." : "You're the high bidder!" });
       setAmount("");
       queryClient.invalidateQueries({ queryKey: ["auction", id] });
@@ -184,6 +230,11 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
       localStorage.setItem("bidderPhone", bidderPhone.trim());
       localStorage.setItem("bidderEmail", bidderEmail.trim());
       setConfirmBuyNow(false);
+      if (r.needsDeposit && r.checkoutUrl) {
+        setMsg({ kind: "ok", text: "First purchase — sending you to Stripe for the one-time $10 refundable deposit…" });
+        window.location.href = r.checkoutUrl;
+        return;
+      }
       setMsg({ kind: "ok", text: `You bought it for ${money(r.amount)}! Your invoice is on its way by text and email — pay it by card on Stripe. Your Messages access code is ${r.accessToken ?? "in your win message"}.` });
       queryClient.invalidateQueries({ queryKey: ["auction", id] });
       queryClient.invalidateQueries({ queryKey: ["auctions"] });
@@ -275,7 +326,7 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
                 </div>
                 <div>
                   <label htmlFor="bidder-email" className="text-xs font-semibold uppercase tracking-widest text-[var(--dim)]">Your email (required)</label>
-                  <input id="bidder-email" type="email" value={bidderEmail} onChange={(e) => setBidderEmail(e.target.value)} required placeholder="you@example.com" className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-3 text-base" />
+                  <input id="bidder-email" type="email" value={bidderEmail} onChange={(e) => setBidderEmail(e.target.value)} onBlur={() => void checkVerified(bidderEmail)} required placeholder="you@example.com" className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-3 text-base" />
                 </div>
               </div>
               <div className="grid sm:grid-cols-[1fr_auto] gap-3 mt-3">
@@ -294,6 +345,11 @@ function DetailView({ id, now, onClose }: { id: number; now: number; onClose: ()
                   <span className="block text-xs text-[var(--dim)] mt-0.5">Only your initials (like C.M.) will show on the bid history and as high bidder. If you win, the seller still gets your real name and contact info so you can arrange pickup.</span>
                 </label>
               </div>
+              {verified === true ? (
+                <p className="text-xs text-green-600 mt-2 font-semibold">✓ Your card is verified — no deposit needed to bid.</p>
+              ) : (
+                <p className="text-xs text-[var(--dim)] mt-2">First time bidding? A one-time $10 refundable deposit verifies your card before your first bid — it's a temporary hold, never charged, and drops off your card automatically within a few days. You only do it once.</p>
+              )}
               <p className="text-xs text-[var(--dim)] mt-2">If you win, an invoice for the winning bid plus the buyer fee plus an administrative fee (2.9% of the subtotal + $0.30) is sent to you by text and email to pay by card through Stripe (live mode — a real card payment), and you and the seller get each other's contact info. Buyer fee if you win: {buyerFeeRate(Number(amount) || price)} of the winning bid ({money(buyerFeeFor(Number(amount) || price))} at {money(Number(amount) || price)}), plus an administrative fee of {moneyCents(adminFeeCentsFor((Number(amount) || price) + buyerFeeFor(Number(amount) || price)))}. The seller is paid after Stripe verifies your invoice payment and both sides confirm the pickup.</p>
               <div className="flex flex-wrap gap-2 mt-3">
                 {[100, 250, 500, 1000].map((inc) => (
@@ -973,6 +1029,24 @@ export function App() {
   const [condition, setCondition] = useState("");
   const [sort, setSort] = useState<"ending" | "price_low" | "price_high" | "newest">("ending");
   const [view, setView] = useState<{ kind: "floor" } | { kind: "detail"; id: number } | { kind: "sell" } | { kind: "messages" }>({ kind: "floor" });
+  const [depositReturn, setDepositReturn] = useState<{ sessionId: string; listingId: number } | { cancelled: true; listingId: number } | null>(null);
+
+  // Returning from the $10 deposit checkout: open the listing so
+  // DetailView can confirm the deposit (and place the pending bid).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const dep = params.get("deposit");
+    const listingId = Number(params.get("listing"));
+    if (!dep || !Number.isFinite(listingId) || listingId <= 0) return;
+    if (dep === "success" && params.get("session_id")) {
+      setDepositReturn({ sessionId: params.get("session_id")!, listingId });
+      setView({ kind: "detail", id: listingId });
+    } else if (dep === "cancelled") {
+      setDepositReturn({ cancelled: true, listingId });
+      setView({ kind: "detail", id: listingId });
+    }
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
 
   const auctions = useQuery({
     queryKey: ["auctions", { search, filter, condition, sort }],
@@ -1015,7 +1089,7 @@ export function App() {
 
       <main className="max-w-6xl mx-auto px-4 py-4">
         {view.kind === "detail" ? (
-          <DetailView id={view.id} now={now} onClose={() => setView({ kind: "floor" })} />
+          <DetailView id={view.id} now={now} onClose={() => setView({ kind: "floor" })} depositReturn={depositReturn && depositReturn.listingId === view.id ? depositReturn : null} />
         ) : view.kind === "messages" ? (
           <div>
             <button type="button" onClick={() => setView({ kind: "floor" })} className="text-sm font-semibold underline underline-offset-4 mb-3" aria-label="Back to auctions">← Back to auctions</button>
@@ -1110,7 +1184,7 @@ export function App() {
               )}
 
             <footer className="mt-10 text-sm text-[var(--dim)] leading-relaxed border-t border-[var(--border)] pt-4 pb-6">
-              <p><strong className="text-[var(--text)]">How it works:</strong> anyone lists a car with a starting bid and a clock. Highest bid when the clock runs out wins (reserve must be met if the seller set one). If the seller set a Buy Now price, any buyer can end the auction early by paying it — same invoice, buyer fee, and administrative fee as winning a bid. Bids in the final 2 minutes extend the auction by 2 minutes so nobody gets sniped. Contact info — mobile phone and email — is required to list and to bid: the moment an auction is won, the buyer is invoiced by text and email, buyer and seller get each other's contact info, and the site owner gets the win and fee message the same way. The buyer pays the invoice by card on Stripe's secure checkout page, and the invoice counts as paid only once Stripe verifies it; when the car is picked up, both buyer and seller confirm the pickup in the checkout under Messages — and that's when the seller gets paid. Prefer delivery? Either side can ask the site owner to arrange delivery from seller to buyer from the same checkout. Delivery is priced per trip — no flat rate and no per-mile rate: the owner personally quotes the cost for the trip from the pickup and delivery addresses and notes entered, and that quoted price is shown to both buyer and seller in the checkout before either side agrees to it.</p>
+              <p><strong className="text-[var(--text)]">How it works:</strong> anyone lists a car with a starting bid and a clock. Highest bid when the clock runs out wins (reserve must be met if the seller set one). If the seller set a Buy Now price, any buyer can end the auction early by paying it — same invoice, buyer fee, and administrative fee as winning a bid. Bids in the final 2 minutes extend the auction by 2 minutes so nobody gets sniped. First-time bidders verify their card with a one-time $10 refundable deposit — a temporary hold, never charged, that drops off automatically. Contact info — mobile phone and email — is required to list and to bid: the moment an auction is won, the buyer is invoiced by text and email, buyer and seller get each other's contact info, and the site owner gets the win and fee message the same way. The buyer pays the invoice by card on Stripe's secure checkout page, and the invoice counts as paid only once Stripe verifies it; when the car is picked up, both buyer and seller confirm the pickup in the checkout under Messages — and that's when the seller gets paid. Prefer delivery? Either side can ask the site owner to arrange delivery from seller to buyer from the same checkout. Delivery is priced per trip — no flat rate and no per-mile rate: the owner personally quotes the cost for the trip from the pickup and delivery addresses and notes entered, and that quoted price is shown to both buyer and seller in the checkout before either side agrees to it.</p>
               <p className="mt-2"><strong className="text-[var(--text)]">Fees when a car sells:</strong> selling is free — the seller pays no fee. The buyer pays 5% of the winning bid on anything under $5,000, and 2.5% on $5,000 or more, on top of the winning bid, plus an administrative fee of 2.9% of the subtotal (winning bid + buyer fee) plus $0.30. No sale, no fees.</p>
             </footer>
           </>
