@@ -24,6 +24,18 @@ standard stack that runs on Render:
   check "Bid privately" — public views then show only their initials
   (high bidder, bid history, and the winner line if they win); the
   seller and owner still see the real name on a win.
+- **Bidder verification — one-time $10 refundable deposit:** before their
+  first bid (or Buy Now), a bidder verifies their card through a $10
+  Stripe Checkout Session created with `payment_intent_data.capture_method:
+  "manual"` — the $10 is authorized (proving the card is good) but never
+  captured, so the hold releases automatically (~7 days) and no fee is
+  charged. The pending bid/Buy Now rides in the session metadata; on
+  return, `/api/confirmDeposit` re-reads the session from Stripe, marks
+  the email verified in `verified_bidders` (migration 0018), and places
+  the pending bid — re-checking that the auction is still live and the
+  bid still meets the minimum. Verification is per-email and permanent;
+  `/api/bidderStatus` lets the bid form show the right note. Confirm is
+  idempotent per deposit session.
 - Tabs: Live now / Ending < 24h / Watchlist / Ended / All, plus search,
   condition filter, and sort (ending soonest, price, newest). Detail pages
   with specs, seller name only, and full bid history.

@@ -464,7 +464,12 @@ api.post("/bidderStatus", asyncHandler(async (req, res) => {
 api.post("/confirmDeposit", asyncHandler(async (req, res) => {
   const { sessionId } = parseBody(z.object({ sessionId: z.string().min(1).max(200) }), req.body);
   const session = await retrieveCheckoutSession(sessionId);
-  if (session.status !== "complete" || session.paymentStatus !== "paid") {
+  // NOTE: a manual-capture deposit session reports payment_status
+  // "unpaid" until the hold is captured — and we never capture it. So
+  // the success signal here is status "complete" plus a PaymentIntent
+  // (the $10 authorization). Verified live 2026-11-12: a completed
+  // deposit session showed status complete / payment_status unpaid.
+  if (session.status !== "complete" || !session.paymentIntentId) {
     throw new Error("That deposit hasn't gone through yet — if you just paid, wait a moment and try again.");
   }
   const md = session.metadata ?? {};
