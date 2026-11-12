@@ -9,8 +9,8 @@ standard stack that runs on Render:
   converted to Postgres in `drizzle/0001`–`0009`
 - **Direct Stripe API** integration (no Muse agent delegation)
 - **Owner login** (email + password) instead of Muse viewer identity
-- Photos on disk under `UPLOADS_DIR` (S3-compatible storage is the
-  follow-up — see below)
+- Photos on a 1 GB Render persistent disk under `UPLOADS_DIR`
+  (survives redeploys; see below)
 
 ## What it does (all replicated from the original)
 
@@ -162,11 +162,12 @@ the payout does **not** release while the invoice is unpaid.
 
 ## Known follow-ups (not blockers)
 
-- **Photo storage:** uploads live on Render's ephemeral disk, so a
-  redeploy can lose photos. The follow-up is S3-compatible object
-  storage (Render does not offer it natively; use an S3 provider and
-  point `UPLOADS_DIR`-style storage at it). Listing data itself lives
-  safely in Postgres.
+- **Photo storage:** uploads live on a 1 GB Render persistent disk
+  (`render.yaml` `disk:` block, mount `/var/data`, `UPLOADS_DIR` =
+  `/var/data/uploads`), so photos survive redeploys. The disk is tied to
+  this one service instance — if the service itself is ever deleted, the
+  photos go with it. A future step could move uploads to S3-compatible
+  object storage instead. Listing data itself lives safely in Postgres.
 - **Stripe webhook:** optional but recommended — set
   `STRIPE_WEBHOOK_SECRET` so paid invoices are marked the moment Stripe
   completes checkout, without waiting for the buyer to tap "check payment
