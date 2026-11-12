@@ -224,7 +224,7 @@ function DetailView({ id, now, onClose, depositReturn }: { id: number; now: numb
   });
   const [confirmBuyNow, setConfirmBuyNow] = useState(false);
   const buyNowMut = useMutation({
-    mutationFn: () => api.buyNow({ listingId: id, buyerName: bidderName.trim(), buyerPhone: bidderPhone.trim(), bidderEmail: bidderEmail.trim(), bidderPrivate: bidPrivate }),
+    mutationFn: () => api.buyNow({ listingId: id, buyerName: bidderName.trim(), buyerPhone: bidderPhone.trim(), buyerEmail: bidderEmail.trim(), bidderPrivate: bidPrivate }),
     onSuccess: (r) => {
       localStorage.setItem("bidderName", bidderName.trim());
       localStorage.setItem("bidderPhone", bidderPhone.trim());
