@@ -101,6 +101,17 @@ standard stack that runs on Render:
   `POST /api/getMyBids`. The code proves the email is theirs, so nobody
   can look up someone else's bids by typing their address — and the
   response never carries another bidder's name, phone, or email.
+- **Per-listing pages:** every listing has its own shareable URL
+  (`/listing/:id`) — opening a listing updates the address bar, the
+  browser back button works, and a link pasted anywhere opens that
+  car's detail view; a bad id falls back to the floor with a
+  "listing isn't here anymore" notice instead of a dead end. The detail
+  view has a Copy link button. The server generates `/sitemap.xml`
+  from live listings (homepage + one URL per live listing) and injects
+  listing-specific title, description, and Open Graph tags (including
+  the main photo) into the HTML served for `/listing/:id`, so shared
+  links show the car in Facebook/iMessage previews even though the app
+  is client-rendered.
 
 ## Owner login (first run)
 

@@ -12,6 +12,21 @@ const TITLES = ["Clean title", "Rebuilt / salvage title", "No title — bill of 
 
 function money(n: number) { return "$" + n.toLocaleString(); }
 
+// Per-listing pages: every listing has a real URL (/listing/:id) that
+// can be shared and indexed. The app has no router — this is a small
+// history-API approach: opening a listing pushes its URL, the browser
+// back button pops back, and a direct load of /listing/:id opens that
+// listing's detail view.
+function listingIdFromPath(pathname: string): number | null {
+  const m = pathname.match(/^\/listing\/(\d+)\/?$/);
+  if (!m) return null;
+  const id = Number(m[1]);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+function listingUrl(id: number) {
+  return `${window.location.origin}/listing/${id}`;
+}
+
 // Marketplace fees: selling is FREE for the seller; the buyer pays 5% of
 // the winning bid under $5,000 and 2.5% at $5,000 or more, plus an
 // administrative fee of 2.9% of the subtotal (bid + buyer fee) plus $0.30.
@@ -149,9 +164,17 @@ function AlertSignup() {
   );
 }
 
-function DetailView({ id, now, onClose, depositReturn }: { id: number; now: number; onClose: () => void; depositReturn?: { sessionId: string } | { cancelled: true } | null }) {
+function DetailView({ id, now, onClose, onNotFound, depositReturn }: { id: number; now: number; onClose: () => void; onNotFound?: () => void; depositReturn?: { sessionId: string } | { cancelled: true } | null }) {
   const queryClient = useQueryClient();
-  const detail = useQuery({ queryKey: ["auction", id], queryFn: () => api.getAuction({ id }), refetchInterval: 5000 });
+  const detail = useQuery({
+    queryKey: ["auction", id],
+    queryFn: () => api.getAuction({ id }),
+    refetchInterval: 5000,
+    // A missing listing (bad link, or removed since it was shared) fails
+    // fast instead of retrying — the not-found effect below sends the
+    // visitor to the floor with a notice. Other errors still retry.
+    retry: (count, err) => (err instanceof Error && /not found/i.test(err.message) ? false : count < 2),
+  });
   const [bidderName, setBidderName] = useState(() => localStorage.getItem("bidderName") ?? "");
   const [bidderPhone, setBidderPhone] = useState(() => localStorage.getItem("bidderPhone") ?? "");
   const [bidderEmail, setBidderEmail] = useState(() => localStorage.getItem("bidderEmail") ?? "");
@@ -160,6 +183,38 @@ function DetailView({ id, now, onClose, depositReturn }: { id: number; now: numb
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [verified, setVerified] = useState<boolean | null>(null);
   const [depositHandled, setDepositHandled] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  // A listing that doesn't exist sends the visitor back to the floor
+  // with a notice, instead of a dead end. Other load failures keep the
+  // error panel below.
+  const notFoundReported = useRef(false);
+  useEffect(() => {
+    if (!detail.error || notFoundReported.current) return;
+    if (/not found/i.test(detail.error instanceof Error ? detail.error.message : "")) {
+      notFoundReported.current = true;
+      onNotFound?.();
+    }
+  }, [detail.error, onNotFound]);
+
+  async function copyLink() {
+    const url = listingUrl(id);
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // Fallback for browsers without async clipboard access.
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setLinkCopied(true);
+    window.setTimeout(() => setLinkCopied(false), 2000);
+  }
 
   // Returning from the $10 deposit checkout: confirm it with the server
   // (which places the pending bid / Buy Now) and show the outcome.
@@ -276,9 +331,14 @@ function DetailView({ id, now, onClose, depositReturn }: { id: number; now: numb
               <h2 className="font-display text-4xl font-bold uppercase leading-none">{listing.year} {listing.make} {listing.model}{listing.trim ? ` ${listing.trim}` : ""}</h2>
               <p className="text-sm text-[var(--dim)] mt-2">{listing.location}{listing.zipCode ? ` ${listing.zipCode}` : ""} · Seller: {listing.sellerName}</p>
             </div>
-            <button type="button" onClick={() => watchMut.mutate()} aria-label={listing.isWatched ? "Remove from watchlist" : "Add to watchlist"} className={`px-3 py-1.5 rounded-full text-sm font-semibold border ${listing.isWatched ? "bg-[var(--accent-strong)] text-black border-transparent" : "border-[var(--border)]"}`}>
-              {listing.isWatched ? "★ Watching" : "☆ Watch"}
-            </button>
+            <div className="flex gap-2">
+              <button type="button" onClick={copyLink} aria-label="Copy a link to this listing" className="px-3 py-1.5 rounded-full text-sm font-semibold border border-[var(--border)]">
+                {linkCopied ? "✓ Link copied" : "⧉ Copy link"}
+              </button>
+              <button type="button" onClick={() => watchMut.mutate()} aria-label={listing.isWatched ? "Remove from watchlist" : "Add to watchlist"} className={`px-3 py-1.5 rounded-full text-sm font-semibold border ${listing.isWatched ? "bg-[var(--accent-strong)] text-black border-transparent" : "border-[var(--border)]"}`}>
+                {listing.isWatched ? "★ Watching" : "☆ Watch"}
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 text-sm">
@@ -1178,8 +1238,43 @@ export function App() {
   const [search, setSearch] = useState("");
   const [condition, setCondition] = useState("");
   const [sort, setSort] = useState<"ending" | "price_low" | "price_high" | "newest">("ending");
-  const [view, setView] = useState<{ kind: "floor" } | { kind: "detail"; id: number } | { kind: "sell" } | { kind: "messages" } | { kind: "mybids" }>({ kind: "floor" });
+  const [view, setView] = useState<{ kind: "floor" } | { kind: "detail"; id: number } | { kind: "sell" } | { kind: "messages" } | { kind: "mybids" }>(() => {
+    // A shared link straight to a car opens that car's detail view.
+    const id = listingIdFromPath(window.location.pathname);
+    return id ? { kind: "detail", id } : { kind: "floor" };
+  });
+  // Shown on the floor when a listing link didn't resolve.
+  const [notFoundNotice, setNotFoundNotice] = useState(false);
   const [depositReturn, setDepositReturn] = useState<{ sessionId: string; listingId: number } | { cancelled: true; listingId: number } | null>(null);
+
+  // Navigation keeps the URL in sync with the view: a listing pushes
+  // /listing/:id, everything else is "/". Browser back/forward
+  // (popstate) re-reads the URL and shows the matching view.
+  function openListing(id: number) {
+    setNotFoundNotice(false);
+    setView({ kind: "detail", id });
+    const url = `/listing/${id}`;
+    if (window.location.pathname !== url) window.history.pushState({}, "", url);
+    window.scrollTo({ top: 0 });
+  }
+  function goHome() {
+    setView({ kind: "floor" });
+    if (window.location.pathname !== "/") window.history.pushState({}, "", "/");
+    window.scrollTo({ top: 0 });
+  }
+  function goToView(kind: "sell" | "messages" | "mybids") {
+    setView({ kind });
+    if (window.location.pathname !== "/") window.history.pushState({}, "", "/");
+  }
+  useEffect(() => {
+    const onPop = () => {
+      const id = listingIdFromPath(window.location.pathname);
+      setNotFoundNotice(false);
+      setView(id ? { kind: "detail", id } : { kind: "floor" });
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   // Returning from the $10 deposit checkout: open the listing so
   // DetailView can confirm the deposit (and place the pending bid).
@@ -1195,7 +1290,7 @@ export function App() {
       setDepositReturn({ cancelled: true, listingId });
       setView({ kind: "detail", id: listingId });
     }
-    window.history.replaceState({}, "", window.location.pathname);
+    window.history.replaceState({}, "", `/listing/${listingId}`);
   }, []);
 
   const auctions = useQuery({
@@ -1222,18 +1317,18 @@ export function App() {
     <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
       <header className="sticky top-0 z-20 bg-[#111214] text-[#f4f1ea] pt-safe shadow-md">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <button type="button" onClick={() => setView({ kind: "floor" })} className="text-left min-w-0" aria-label="Go to the auction floor">
+          <button type="button" onClick={goHome} className="text-left min-w-0" aria-label="Go to the auction floor">
             <span className="font-display text-2xl sm:text-3xl font-bold uppercase tracking-wide leading-none">Auction<span className="text-[var(--accent-strong)]">Floor</span></span>
             <span className="block text-[10px] sm:text-[11px] uppercase tracking-[0.2em] text-[#a39d90]">Cars · Open to everyone</span>
           </button>
           <div className="shrink-0 flex items-center gap-2">
-            <button type="button" onClick={() => setView({ kind: "mybids" })} className="px-3 sm:px-4 py-2.5 rounded-xl border border-[#f4f1ea]/40 text-[#f4f1ea] font-display text-lg sm:text-xl font-bold uppercase whitespace-nowrap" aria-label="See my bids">
+            <button type="button" onClick={() => goToView("mybids")} className="px-3 sm:px-4 py-2.5 rounded-xl border border-[#f4f1ea]/40 text-[#f4f1ea] font-display text-lg sm:text-xl font-bold uppercase whitespace-nowrap" aria-label="See my bids">
               My bids
             </button>
-            <button type="button" onClick={() => setView({ kind: "messages" })} className="px-3 sm:px-4 py-2.5 rounded-xl border border-[#f4f1ea]/40 text-[#f4f1ea] font-display text-lg sm:text-xl font-bold uppercase whitespace-nowrap" aria-label="Open messages">
+            <button type="button" onClick={() => goToView("messages")} className="px-3 sm:px-4 py-2.5 rounded-xl border border-[#f4f1ea]/40 text-[#f4f1ea] font-display text-lg sm:text-xl font-bold uppercase whitespace-nowrap" aria-label="Open messages">
               Messages
             </button>
-            <button type="button" onClick={() => setView({ kind: "sell" })} className="px-3 sm:px-4 py-2.5 rounded-xl bg-[var(--accent-strong)] text-black font-display text-lg sm:text-xl font-bold uppercase whitespace-nowrap" aria-label="Sell a car — list it for auction">
+            <button type="button" onClick={() => goToView("sell")} className="px-3 sm:px-4 py-2.5 rounded-xl bg-[var(--accent-strong)] text-black font-display text-lg sm:text-xl font-bold uppercase whitespace-nowrap" aria-label="Sell a car — list it for auction">
               + Sell a car
             </button>
           </div>
@@ -1242,24 +1337,30 @@ export function App() {
 
       <main className="max-w-6xl mx-auto px-4 py-4">
         {view.kind === "detail" ? (
-          <DetailView id={view.id} now={now} onClose={() => setView({ kind: "floor" })} depositReturn={depositReturn && depositReturn.listingId === view.id ? depositReturn : null} />
+          <DetailView key={view.id} id={view.id} now={now} onClose={goHome} onNotFound={() => { setNotFoundNotice(true); setView({ kind: "floor" }); window.history.replaceState({}, "", "/"); }} depositReturn={depositReturn && depositReturn.listingId === view.id ? depositReturn : null} />
         ) : view.kind === "mybids" ? (
           <div>
-            <button type="button" onClick={() => setView({ kind: "floor" })} className="text-sm font-semibold underline underline-offset-4 mb-3" aria-label="Back to auctions">← Back to auctions</button>
-            <MyBidsView onOpenListing={(id) => setView({ kind: "detail", id })} />
+            <button type="button" onClick={goHome} className="text-sm font-semibold underline underline-offset-4 mb-3" aria-label="Back to auctions">← Back to auctions</button>
+            <MyBidsView onOpenListing={openListing} />
           </div>
         ) : view.kind === "messages" ? (
           <div>
-            <button type="button" onClick={() => setView({ kind: "floor" })} className="text-sm font-semibold underline underline-offset-4 mb-3" aria-label="Back to auctions">← Back to auctions</button>
-            <MessagesView onOpenListing={(id) => setView({ kind: "detail", id })} />
+            <button type="button" onClick={goHome} className="text-sm font-semibold underline underline-offset-4 mb-3" aria-label="Back to auctions">← Back to auctions</button>
+            <MessagesView onOpenListing={openListing} />
           </div>
         ) : view.kind === "sell" ? (
           <div>
-            <button type="button" onClick={() => setView({ kind: "floor" })} className="text-sm font-semibold underline underline-offset-4 mb-3" aria-label="Back to auctions">← Back to auctions</button>
-            <SellForm onDone={(id) => setView({ kind: "detail", id })} />
+            <button type="button" onClick={goHome} className="text-sm font-semibold underline underline-offset-4 mb-3" aria-label="Back to auctions">← Back to auctions</button>
+            <SellForm onDone={openListing} />
           </div>
         ) : (
           <>
+            {notFoundNotice && (
+              <div role="status" className="mb-4 flex items-start justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+                <p className="text-sm"><strong>That listing isn't here anymore</strong> — it may have ended or been removed. Here are the cars on the floor now.</p>
+                <button type="button" onClick={() => setNotFoundNotice(false)} aria-label="Dismiss this message" className="text-lg leading-none shrink-0">×</button>
+              </div>
+            )}
             {stats && (
               <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-[var(--dim)] mb-4" aria-label="Marketplace totals">
                 <span><strong className="text-[var(--text)] font-display text-xl">{stats.live}</strong> live</span>
@@ -1308,14 +1409,14 @@ export function App() {
                 <div className="py-14 text-center bg-[var(--surface)] border border-dashed border-[var(--border)] rounded-2xl mt-6 px-6">
                   <p className="font-display text-3xl font-bold uppercase">{filter === "watched" ? "Nothing on your watchlist yet" : filter === "ended" ? "No ended auctions yet" : "The floor is empty"}</p>
                   <p className="text-[var(--dim)] mt-2 max-w-md mx-auto">{filter === "watched" ? "Tap ☆ Watch on any car and it'll wait for you here." : "No cars match right now. Be the first to put one on the block — listing is free and takes about two minutes."}</p>
-                  {filter !== "watched" && <button type="button" onClick={() => setView({ kind: "sell" })} className="mt-5 px-6 py-3 rounded-xl bg-[var(--accent-strong)] text-black font-display text-xl font-bold uppercase" aria-label="List the first car">List a car</button>}
+                  {filter !== "watched" && <button type="button" onClick={() => goToView("sell")} className="mt-5 px-6 py-3 rounded-xl bg-[var(--accent-strong)] text-black font-display text-xl font-bold uppercase" aria-label="List the first car">List a car</button>}
                 </div>
               ) : (
                 <>
                   {featured && (
                     <section aria-label="Ending soonest" className="mt-5 bg-[#111214] text-[#f4f1ea] rounded-2xl overflow-hidden">
                       <div className="grid md:grid-cols-2">
-                        <button type="button" onClick={() => setView({ kind: "detail", id: featured.id })} className="block text-left" aria-label={`View featured ${featured.year} ${featured.make} ${featured.model}`}>
+                        <button type="button" onClick={() => openListing(featured.id)} className="block text-left" aria-label={`View featured ${featured.year} ${featured.make} ${featured.model}`}>
                           <CarVisual listing={featured} large />
                         </button>
                         <div className="p-5 sm:p-7 flex flex-col">
@@ -1326,7 +1427,7 @@ export function App() {
                             <div><p className="text-[11px] uppercase tracking-widest text-[#a39d90]">{featured.currentBid != null ? "Current bid" : "Starting bid"}</p><p className="font-display text-5xl font-bold tabular leading-none">{money(featured.currentBid ?? featured.startingPrice)}</p></div>
                             <div><p className="text-[11px] uppercase tracking-widest text-[#a39d90]">Time left</p><p className={`font-display text-5xl font-bold tabular leading-none ${countdown(featured.endsAt, now).urgent ? "text-red-400" : ""}`}>{countdown(featured.endsAt, now).label}</p></div>
                           </div>
-                          <button type="button" onClick={() => setView({ kind: "detail", id: featured.id })} className="mt-auto pt-6" aria-label={`Bid on the featured ${featured.make} ${featured.model}`}>
+                          <button type="button" onClick={() => openListing(featured.id)} className="mt-auto pt-6" aria-label={`Bid on the featured ${featured.make} ${featured.model}`}>
                             <span className="block w-full text-center py-3.5 rounded-xl bg-[var(--accent-strong)] text-black font-display text-2xl font-bold uppercase">Bid now — {featured.bidCount} bid{featured.bidCount === 1 ? "" : "s"} in</span>
                           </button>
                         </div>
@@ -1335,7 +1436,7 @@ export function App() {
                   )}
                   <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-5">
                     {gridListings.map((l) => (
-                      <ListingCard key={l.id} listing={l} now={now} onOpen={() => setView({ kind: "detail", id: l.id })} onWatch={() => watchMut.mutate(l.id)} />
+                      <ListingCard key={l.id} listing={l} now={now} onOpen={() => openListing(l.id)} onWatch={() => watchMut.mutate(l.id)} />
                     ))}
                   </div>
                 </>
