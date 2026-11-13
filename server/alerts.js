@@ -50,7 +50,7 @@ function alertBody(listing, token) {
     `Location: ${listing.location}${listing.zipCode ? ` ${listing.zipCode}` : ""}`,
     `Mileage: ${Number(listing.mileage).toLocaleString("en-US")} miles`,
     ``,
-    `See it and bid: ${APP_URL}/`,
+    `See it and bid: ${APP_URL}/listing/${listing.id}`,
     ``,
     `You're getting this because you signed up for new-listing alerts on AuctionFloor.`,
     `Stop these emails: ${APP_URL}/api/unsubscribeAlerts?token=${token}`,
