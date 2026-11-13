@@ -115,14 +115,17 @@ app.get("/listing/:id", async (req, res, next) => {
           .where(eq(schema.bids.listingId, id)).orderBy(desc(schema.bids.amount)).limit(1);
         const price = topBid[0] ? topBid[0].amount : row.startingPrice;
         const priceLabel = topBid[0] ? "Current bid" : "Starting bid";
-        const desc = `${name} · ${Number(row.mileage).toLocaleString()} mi · ${row.condition} · ${row.location}. ${priceLabel} ${money(price)} — bid now on AuctionFloor.`;
+        // NOTE: named metaDesc, not desc — `desc` is the drizzle sort
+        // helper imported above, and a local `const desc` here would
+        // shadow it (temporal dead zone) and break the topBid query.
+        const metaDesc = `${name} · ${Number(row.mileage).toLocaleString()} mi · ${row.condition} · ${row.location}. ${priceLabel} ${money(price)} — bid now on AuctionFloor.`;
         const url = `${APP_URL}/listing/${row.id}`;
         const image = await listingCoverUrl(row);
         html = html
           .replace(/<title>.*?<\/title>/, `<title>${escapeHtml(name)} — AuctionFloor</title>`)
-          .replace(/<meta name="description" content="[^"]*" \/>/, `<meta name="description" content="${escapeHtml(desc)}" />`)
+          .replace(/<meta name="description" content="[^"]*" \/>/, `<meta name="description" content="${escapeHtml(metaDesc)}" />`)
           .replace(/<meta property="og:title" content="[^"]*" \/>/, `<meta property="og:title" content="${escapeHtml(name)} — AuctionFloor" />`)
-          .replace(/<meta property="og:description" content="[^"]*" \/>/, `<meta property="og:description" content="${escapeHtml(desc)}" />`)
+          .replace(/<meta property="og:description" content="[^"]*" \/>/, `<meta property="og:description" content="${escapeHtml(metaDesc)}" />`)
           .replace(/<meta property="og:url" content="[^"]*" \/>/, `<meta property="og:url" content="${escapeHtml(url)}" />`);
         const extra = [
           image ? `<meta property="og:image" content="${escapeHtml(image)}" />` : null,
