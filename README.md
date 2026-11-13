@@ -86,6 +86,21 @@ standard stack that runs on Render:
 - **Owner tab** (Messages → Owner — fees & settings): fee notices, delivery
   requests + per-trip quotes, and owner contact settings. Gated by owner
   login — see below.
+- **Owner bid removal:** on any listing, the logged-in owner sees a Remove
+  button next to each bid in the bid history (two-tap confirm). Server:
+  owner-only `POST /api/removeBid`; refuses once the auction has closed
+  into a sale. Current bid / high bidder / Buy Now visibility are derived
+  from the bids table, so they update automatically.
+- **"See my bids" (no accounts):** a "My bids" button in the header. The
+  bidder enters the email they bid with and gets a 6-digit code by email
+  (15-minute window, 60-second resend throttle); entering the code lists
+  their bids with the car, their bid, the current high bid, whether
+  they're winning, time left, and the outcome once the auction ends
+  (won / lost / reserve not met / didn't sell). Server: migration 0019
+  `bid_lookup_codes`, `POST /api/requestBidLookup` and
+  `POST /api/getMyBids`. The code proves the email is theirs, so nobody
+  can look up someone else's bids by typing their address — and the
+  response never carries another bidder's name, phone, or email.
 
 ## Owner login (first run)
 

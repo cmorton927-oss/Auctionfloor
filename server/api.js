@@ -21,7 +21,7 @@ import {
   saleTotalDueCents,
 } from "./fees.js";
 import { applyVerifiedStripePayment, createCheckoutForSale, finalizeEndedAuctions, releasePayoutIfReady } from "./finalize.js";
-import { buyerSellerOwnerEntries, getOwnerSettingsRow, notifySaleParties } from "./notify.js";
+import { buyerSellerOwnerEntries, emailConfigured, getOwnerSettingsRow, notifySaleParties, sendEmail } from "./notify.js";
 import { createFirstOwner, loginOwner, logoutOwner, ownerCookieOptions, ownerExists, ownerFromRequest, OWNER_COOKIE } from "./auth.js";
 import { createDepositCheckoutSession, getStripe, retrieveCheckoutSession, stripeConfigured } from "./stripe.js";
 import { checkLocalRadius } from "./geo.js";
@@ -454,6 +454,120 @@ api.post("/buyNow", asyncHandler(async (req, res) => {
 api.post("/bidderStatus", asyncHandler(async (req, res) => {
   const email = String(req.body?.email ?? "").trim().toLowerCase();
   res.json({ verified: email.includes("@") && (await isBidderVerified(email)) });
+}));
+
+// ---- "See my bids" (no accounts) ----------------------------------------
+// A bidder enters the email they bid with and gets a 6-digit code by
+// email; the code proves the email is theirs, so nobody can look up
+// someone else's bids by typing their address. Codes last 15 minutes
+// and stay usable for the whole window (refreshing the list works);
+// a new request replaces any older code for that email.
+const LOOKUP_CODE_TTL_MS = 15 * 60 * 1000;
+const LOOKUP_CODE_RESEND_MS = 60 * 1000;
+
+// Pure: one of the bidder's own bids, rendered for the "See my bids"
+// list. Only the bidder's own rows and the listing's public state go
+// out — never another bidder's name, phone, or email.
+export function myBidOut(bid, listing, bidsForListing, sale, myEmail, imageUrl) {
+  const sorted = [...bidsForListing].sort((a, b) => b.amount - a.amount);
+  const top = sorted[0];
+  const isEnded = new Date(listing.endsAt).getTime() <= Date.now();
+  let outcome = null; // live auction: no outcome yet
+  if (isEnded) {
+    if (!sale) outcome = "ended"; // clock ran out, finalize hasn't run yet
+    else if (sale.status === "sold") outcome = String(sale.winnerEmail ?? "").trim().toLowerCase() === myEmail ? "won" : "lost";
+    else outcome = sale.status; // no_sale | reserve_not_met
+  }
+  return {
+    listingId: listing.id,
+    car: carName(listing),
+    location: listing.location,
+    imageUrl: imageUrl ?? null,
+    myBid: bid.amount,
+    myBidAt: iso(bid.createdAt),
+    currentBid: top ? top.amount : null,
+    amHighBidder: top ? top.id === bid.id : false,
+    endsAt: iso(listing.endsAt),
+    isEnded,
+    outcome,
+  };
+}
+
+api.post("/requestBidLookup", asyncHandler(async (req, res) => {
+  const args = parseBody(z.object({ email: emailField }), req.body);
+  const email = args.email.trim().toLowerCase();
+  if (!emailConfigured) throw new Error("Email isn't set up on this site yet, so the code can't be sent.");
+  const existing = await db.select().from(schema.bidLookupCodes).where(eq(schema.bidLookupCodes.email, email));
+  const recent = existing.find((r) => Date.now() - new Date(r.createdAt).getTime() < LOOKUP_CODE_RESEND_MS);
+  if (recent) {
+    const retryAfterSec = Math.ceil((LOOKUP_CODE_RESEND_MS - (Date.now() - new Date(recent.createdAt).getTime())) / 1000);
+    return res.json({ ok: true, retryAfterSec });
+  }
+  const code = String(crypto.randomInt(100000, 1000000));
+  await db.delete(schema.bidLookupCodes).where(eq(schema.bidLookupCodes.email, email));
+  await db.insert(schema.bidLookupCodes).values({ email, code, expiresAt: new Date(Date.now() + LOOKUP_CODE_TTL_MS) });
+  const ok = await sendEmail(
+    email,
+    "Your AuctionFloor bids code",
+    `Your AuctionFloor code is ${code}\n\nEnter it on the site to see your bids. It expires in 15 minutes.\n\nIf you didn't ask for this, ignore this email.`,
+  );
+  if (!ok) {
+    await db.delete(schema.bidLookupCodes).where(eq(schema.bidLookupCodes.email, email));
+    throw new Error("Couldn't send the code — try again in a minute.");
+  }
+  res.json({ ok: true });
+}));
+
+api.post("/getMyBids", asyncHandler(async (req, res) => {
+  const args = parseBody(z.object({
+    email: emailField,
+    code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code from your email."),
+  }), req.body);
+  const email = args.email.trim().toLowerCase();
+  await finalizeEndedAuctions();
+  const codeRows = await db.select().from(schema.bidLookupCodes).where(eq(schema.bidLookupCodes.email, email));
+  const valid = codeRows.find((r) => r.code === args.code && new Date(r.expiresAt).getTime() > Date.now());
+  if (!valid) {
+    const e = new Error("That code doesn't match, or it expired — request a new one.");
+    e.status = 401;
+    throw e;
+  }
+  // Opportunistic cleanup of expired codes for this email.
+  for (const r of codeRows) {
+    if (new Date(r.expiresAt).getTime() <= Date.now()) {
+      await db.delete(schema.bidLookupCodes).where(eq(schema.bidLookupCodes.id, r.id)).catch(() => {});
+    }
+  }
+  // Bidder emails were stored trimmed but not always lowercased, so the
+  // match is case-insensitive (same as the deposit check).
+  const allBids = await db.select().from(schema.bids);
+  const myBids = allBids
+    .filter((b) => String(b.bidderEmail ?? "").trim().toLowerCase() === email)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  if (myBids.length === 0) return res.json({ bids: [] });
+  const listingRows = await db.select().from(schema.listings);
+  const listingById = new Map(listingRows.map((l) => [l.id, l]));
+  const saleRows = await db.select().from(schema.sales);
+  const saleByListing = new Map(saleRows.map((s) => [s.listingId, s]));
+  const photoRows = await db.select().from(schema.listingPhotos).orderBy(asc(schema.listingPhotos.listingId), asc(schema.listingPhotos.position));
+  const coverByListing = new Map();
+  for (const p of photoRows) {
+    if (!coverByListing.has(p.listingId)) coverByListing.set(p.listingId, `/uploads/${p.imagePath}`);
+  }
+  const bidsByListing = new Map();
+  for (const b of allBids) {
+    if (!bidsByListing.has(b.listingId)) bidsByListing.set(b.listingId, []);
+    bidsByListing.get(b.listingId).push(b);
+  }
+  const out = [];
+  for (const bid of myBids) {
+    const listing = listingById.get(bid.listingId);
+    if (!listing) continue; // listing deleted since the bid
+    const imageUrl = coverByListing.get(listing.id)
+      ?? (listing.imagePath ? `/uploads/${listing.imagePath}` : (listing.imageUrl ?? null));
+    out.push(myBidOut(bid, listing, bidsByListing.get(listing.id) ?? [], saleByListing.get(listing.id), email, imageUrl));
+  }
+  res.json({ bids: out });
 }));
 
 // Confirm a $10 bidder deposit after Stripe: verify the session with

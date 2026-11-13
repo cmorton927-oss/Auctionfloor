@@ -147,3 +147,14 @@ export const verifiedBidders = pgTable("verified_bidders", {
   verifiedAt: timestamp("verified_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// "See my bids" lookup codes: a 6-digit code emailed to the address the
+// bidder bid with, proving the email is theirs. Expires after 15 minutes;
+// a new request replaces any older code for that email. No accounts.
+export const bidLookupCodes = pgTable("bid_lookup_codes", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull(),
+  code: text("code").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

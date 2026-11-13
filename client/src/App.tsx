@@ -1043,13 +1043,142 @@ function MessagesView({ onOpenListing }: { onOpenListing: (id: number) => void }
   );
 }
 
+// "See my bids" — no accounts. The bidder enters the email they bid
+// with, gets a 6-digit code by email, and sees their bids: what they
+// bid, the current high bid, whether they're winning, and the outcome
+// once the auction ends.
+function MyBidsView({ onOpenListing }: { onOpenListing: (id: number) => void }) {
+  const now = useNow();
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [step, setStep] = useState<"email" | "code">("email");
+  const [bids, setBids] = useState<any[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const inputCls = "mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-base";
+  const labelCls = "text-xs font-semibold uppercase tracking-widest text-[var(--dim)]";
+
+  async function requestCode(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api.requestBidLookup({ email: email.trim() });
+      if (r.retryAfterSec) {
+        setMsg({ kind: "err", text: `A code was just sent — wait ${r.retryAfterSec} seconds before asking for another.` });
+      } else {
+        setStep("code");
+        setMsg({ kind: "ok", text: `Code sent to ${email.trim()} — check your inbox (and spam). It expires in 15 minutes.` });
+      }
+    } catch (err) {
+      setMsg({ kind: "err", text: err instanceof Error ? err.message : "Couldn't send the code." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function fetchBids(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api.getMyBids({ email: email.trim(), code: code.trim() });
+      setBids(r.bids);
+    } catch (err) {
+      setMsg({ kind: "err", text: err instanceof Error ? err.message : "Couldn't load your bids." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function reset() {
+    setStep("email");
+    setCode("");
+    setBids(null);
+    setMsg(null);
+  }
+
+  function statusLine(b: any) {
+    if (!b.isEnded) {
+      const cd = countdown(b.endsAt, now);
+      return b.amHighBidder
+        ? <span className="font-semibold">You're winning ✓ · {cd.label} left</span>
+        : <span className="font-semibold">Outbid — current bid is {money(b.currentBid ?? 0)} · {cd.label} left</span>;
+    }
+    if (b.outcome === "won") return <span className="font-semibold">You won! Check Messages for your invoice.</span>;
+    if (b.outcome === "lost") return <span className="font-semibold">Sold to someone else.</span>;
+    if (b.outcome === "reserve_not_met") return <span className="font-semibold">Reserve not met — didn't sell.</span>;
+    if (b.outcome === "no_sale") return <span className="font-semibold">Didn't sell.</span>;
+    return <span className="font-semibold">Ended — result coming.</span>;
+  }
+
+  return (
+    <div className="pb-10">
+      <h2 className="font-display text-4xl font-bold uppercase leading-none">See my bids</h2>
+      <p className="text-sm text-[var(--dim)] mt-2">No account needed. Enter the email you bid with and we'll send you a 6-digit code — that keeps anyone else from looking up your bids.</p>
+
+      {bids === null ? (
+        <div className="max-w-md mt-4">
+          {step === "email" ? (
+            <form onSubmit={requestCode}>
+              <label htmlFor="mybids-email" className={labelCls}>Email you bid with</label>
+              <input id="mybids-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" className={inputCls} />
+              <button type="submit" disabled={busy} className="mt-3 px-5 py-2.5 rounded-xl bg-[var(--accent-strong)] text-black font-display text-lg font-bold uppercase disabled:opacity-50">
+                {busy ? "Sending…" : "Email me a code"}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={fetchBids}>
+              <label htmlFor="mybids-code" className={labelCls}>6-digit code from your email</label>
+              <input id="mybids-code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" inputMode="numeric" autoComplete="one-time-code" className={`${inputCls} tracking-[0.3em]`} />
+              <div className="flex flex-wrap items-center gap-3 mt-3">
+                <button type="submit" disabled={busy || code.trim().length !== 6} className="px-5 py-2.5 rounded-xl bg-[var(--accent-strong)] text-black font-display text-lg font-bold uppercase disabled:opacity-50">
+                  {busy ? "Loading…" : "See my bids"}
+                </button>
+                <button type="button" onClick={reset} className="text-sm font-semibold underline underline-offset-4">Use a different email</button>
+              </div>
+            </form>
+          )}
+          {msg && <p className={`mt-3 text-sm ${msg.kind === "err" ? "text-[var(--danger)]" : ""}`}>{msg.text}</p>}
+        </div>
+      ) : bids.length === 0 ? (
+        <div className="py-12 text-center bg-[var(--surface)] border border-dashed border-[var(--border)] rounded-2xl mt-4 px-6">
+          <p className="font-display text-3xl font-bold uppercase">No bids yet for that email</p>
+          <p className="text-[var(--dim)] mt-2">Make sure it's the same email you used when you placed the bid — that's the one your bids are filed under.</p>
+          <button type="button" onClick={reset} className="mt-4 text-sm font-semibold underline underline-offset-4">Try a different email</button>
+        </div>
+      ) : (
+        <div className="mt-4">
+          <button type="button" onClick={reset} className="text-sm font-semibold underline underline-offset-4 mb-3">Look up a different email</button>
+          <div className="flex flex-col gap-3">
+            {bids.map((b) => (
+              <button key={`${b.listingId}-${b.myBidAt}`} type="button" onClick={() => onOpenListing(b.listingId)} className="text-left bg-[var(--surface)] border border-[var(--border)] rounded-2xl overflow-hidden flex gap-0 hover:border-[var(--accent-strong)]" aria-label={`View ${b.car}`}>
+                {b.imageUrl ? (
+                  <img src={b.imageUrl} alt="" className="w-28 sm:w-40 shrink-0 object-cover" loading="lazy" />
+                ) : (
+                  <span className="w-28 sm:w-40 shrink-0 bg-[#1c1d20] text-[#f4f1ea] flex items-center justify-center font-display font-bold text-xl">{b.car.split(" ")[0]}</span>
+                )}
+                <span className="p-3 sm:p-4 min-w-0">
+                  <span className="block font-display text-xl sm:text-2xl font-bold uppercase leading-tight truncate">{b.car}</span>
+                  <span className="block text-xs text-[var(--dim)] mt-0.5">{b.location} · Your bid {money(b.myBid)}</span>
+                  <span className="block text-sm mt-1.5">{statusLine(b)}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function App() {
   const now = useNow();
   const [filter, setFilter] = useState<"live" | "ending" | "ended" | "watched" | "all">("live");
   const [search, setSearch] = useState("");
   const [condition, setCondition] = useState("");
   const [sort, setSort] = useState<"ending" | "price_low" | "price_high" | "newest">("ending");
-  const [view, setView] = useState<{ kind: "floor" } | { kind: "detail"; id: number } | { kind: "sell" } | { kind: "messages" }>({ kind: "floor" });
+  const [view, setView] = useState<{ kind: "floor" } | { kind: "detail"; id: number } | { kind: "sell" } | { kind: "messages" } | { kind: "mybids" }>({ kind: "floor" });
   const [depositReturn, setDepositReturn] = useState<{ sessionId: string; listingId: number } | { cancelled: true; listingId: number } | null>(null);
 
   // Returning from the $10 deposit checkout: open the listing so
@@ -1098,6 +1227,9 @@ export function App() {
             <span className="block text-[10px] sm:text-[11px] uppercase tracking-[0.2em] text-[#a39d90]">Cars · Open to everyone</span>
           </button>
           <div className="shrink-0 flex items-center gap-2">
+            <button type="button" onClick={() => setView({ kind: "mybids" })} className="px-3 sm:px-4 py-2.5 rounded-xl border border-[#f4f1ea]/40 text-[#f4f1ea] font-display text-lg sm:text-xl font-bold uppercase whitespace-nowrap" aria-label="See my bids">
+              My bids
+            </button>
             <button type="button" onClick={() => setView({ kind: "messages" })} className="px-3 sm:px-4 py-2.5 rounded-xl border border-[#f4f1ea]/40 text-[#f4f1ea] font-display text-lg sm:text-xl font-bold uppercase whitespace-nowrap" aria-label="Open messages">
               Messages
             </button>
@@ -1111,6 +1243,11 @@ export function App() {
       <main className="max-w-6xl mx-auto px-4 py-4">
         {view.kind === "detail" ? (
           <DetailView id={view.id} now={now} onClose={() => setView({ kind: "floor" })} depositReturn={depositReturn && depositReturn.listingId === view.id ? depositReturn : null} />
+        ) : view.kind === "mybids" ? (
+          <div>
+            <button type="button" onClick={() => setView({ kind: "floor" })} className="text-sm font-semibold underline underline-offset-4 mb-3" aria-label="Back to auctions">← Back to auctions</button>
+            <MyBidsView onOpenListing={(id) => setView({ kind: "detail", id })} />
+          </div>
         ) : view.kind === "messages" ? (
           <div>
             <button type="button" onClick={() => setView({ kind: "floor" })} className="text-sm font-semibold underline underline-offset-4 mb-3" aria-label="Back to auctions">← Back to auctions</button>
