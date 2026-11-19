@@ -24,6 +24,8 @@ export const api = {
     }>,
   getAuction: (args: { id: number }) => call("getAuction", args) as Promise<{ listing: any; bids: any[] }>,
   createListing: (args: Record<string, unknown>) => call("createListing", args) as Promise<{ id: number }>,
+  relistListing: (args: { listingId: number; durationHours: number; startingPrice: number; reservePrice: number; buyNowPrice: number }) =>
+    call("relistListing", args) as Promise<{ id: number }>,
   placeBid: (args: Record<string, unknown>) =>
     call("placeBid", args) as Promise<{ ok?: boolean; extended?: boolean; newEndsAt?: string; needsDeposit?: boolean; checkoutUrl?: string; sessionId?: string }>,
   buyNow: (args: Record<string, unknown>) =>

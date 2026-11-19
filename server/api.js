@@ -345,6 +345,77 @@ api.post("/createListing", asyncHandler(async (req, res) => {
   res.json({ id: inserted[0].id });
 }));
 
+// Owner-only: relist an ended auction that did NOT sell. Copies the
+// listing — details, seller, photos — into a fresh listing with a new
+// clock; duration and prices come from the request (the client prefills
+// them from the original). There are no seller logins, so the owner
+// relists on a seller's behalf. Refuses live listings and sold cars.
+// The old listing stays untouched as ended history and its bids (if
+// any, e.g. the reserve-not-met case) stay on it; the new listing
+// starts with 0 bids. Note the sale check is by status, not by row:
+// finalize records no_sale / reserve_not_met rows for unsold auctions
+// too, so only a "sold" row blocks a relist.
+api.post("/relistListing", requireOwner, asyncHandler(async (req, res) => {
+  const args = parseBody(z.object({
+    listingId: z.number().int().positive(),
+    durationHours: z.number().int().min(1).max(24 * 14),
+    startingPrice: z.number().int().min(1).max(10000000),
+    reservePrice: z.number().int().min(0).max(10000000).default(0),
+    buyNowPrice: z.number().int().min(0).max(10000000).default(0),
+  }), req.body);
+  await finalizeEndedAuctions();
+  const rows = await db.select().from(schema.listings).where(eq(schema.listings.id, args.listingId));
+  const listing = rows[0];
+  if (!listing) throw new Error("Listing not found");
+  if (new Date(listing.endsAt).getTime() > Date.now()) throw new Error("That auction is still live — it can only be relisted once it ends.");
+  const saleRows = await db.select().from(schema.sales).where(eq(schema.sales.listingId, args.listingId));
+  if (saleRows.length > 0 && saleRows[0].status === "sold") throw new Error("That car already sold — it can't be relisted.");
+  if (args.buyNowPrice > 0 && args.buyNowPrice < args.startingPrice) {
+    throw new Error("The Buy Now price can't be lower than the starting bid.");
+  }
+  const radius = checkLocalRadius(listing.zipCode);
+  if (!radius.ok) throw new Error(radius.reason);
+  // Copy the photos to new files: deleteListing removes the underlying
+  // files, so sharing paths with the original would break the relist
+  // if the original is ever deleted. A missing source file doesn't
+  // block the relist — the rest copy over.
+  const photoRows = await db.select().from(schema.listingPhotos).where(eq(schema.listingPhotos.listingId, args.listingId)).orderBy(asc(schema.listingPhotos.position));
+  const sourcePaths = photoRows.length > 0 ? photoRows.map((p) => p.imagePath) : (listing.imagePath ? [listing.imagePath] : []);
+  const savedPaths = [];
+  for (const src of sourcePaths) {
+    try {
+      const bytes = fs.readFileSync(path.join(uploadsDir(), src));
+      const ext = path.extname(src).replace(/^\./, "") || "jpg";
+      const filename = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}.${ext}`;
+      fs.mkdirSync(uploadsDir(), { recursive: true });
+      fs.writeFileSync(path.join(uploadsDir(), filename), bytes);
+      savedPaths.push(filename);
+    } catch { /* source photo gone — skip it */ }
+  }
+  const imagePath = savedPaths[0] ?? null;
+  const endsAt = new Date(Date.now() + args.durationHours * 3600 * 1000);
+  const inserted = await db.insert(schema.listings).values({
+    year: listing.year, make: listing.make, model: listing.model, trim: listing.trim,
+    mileage: listing.mileage, condition: listing.condition, titleStatus: listing.titleStatus,
+    location: listing.location, zipCode: listing.zipCode, description: listing.description,
+    imageUrl: null, imagePath,
+    sellerName: listing.sellerName, sellerPhone: listing.sellerPhone, sellerEmail: listing.sellerEmail,
+    privateSeller: listing.privateSeller,
+    noMechanicalIssuesConfirmed: listing.noMechanicalIssuesConfirmed,
+    startingPrice: args.startingPrice, reservePrice: args.reservePrice > 0 ? args.reservePrice : null, buyNowPrice: args.buyNowPrice > 0 ? args.buyNowPrice : null, endsAt,
+  }).returning({ id: schema.listings.id });
+  if (!inserted[0]) throw new Error("Failed to relist — try again.");
+  if (savedPaths.length > 0) {
+    await db.insert(schema.listingPhotos).values(savedPaths.map((p, position) => ({ listingId: inserted[0].id, imagePath: p, position })));
+  }
+  notifyNewListing({
+    id: inserted[0].id, year: listing.year, make: listing.make, model: listing.model, trim: listing.trim,
+    startingPrice: args.startingPrice, buyNowPrice: args.buyNowPrice > 0 ? args.buyNowPrice : null,
+    condition: listing.condition, location: listing.location, zipCode: listing.zipCode, mileage: listing.mileage,
+  }).catch(() => {});
+  res.json({ id: inserted[0].id });
+}));
+
 // New-listing email alerts: subscribe with just an email address, and
 // unsubscribe from the link in any alert email.
 api.post("/subscribeAlerts", asyncHandler(async (req, res) => {

@@ -164,7 +164,7 @@ function AlertSignup() {
   );
 }
 
-function DetailView({ id, now, onClose, onNotFound, depositReturn }: { id: number; now: number; onClose: () => void; onNotFound?: () => void; depositReturn?: { sessionId: string } | { cancelled: true } | null }) {
+function DetailView({ id, now, onClose, onNotFound, onOpenListing, depositReturn }: { id: number; now: number; onClose: () => void; onNotFound?: () => void; onOpenListing?: (id: number) => void; depositReturn?: { sessionId: string } | { cancelled: true } | null }) {
   const queryClient = useQueryClient();
   const detail = useQuery({
     queryKey: ["auction", id],
@@ -310,6 +310,31 @@ function DetailView({ id, now, onClose, onNotFound, depositReturn }: { id: numbe
     onSuccess: () => { setConfirmRemoveBid(null); setMsg({ kind: "ok", text: "Bid removed." }); queryClient.invalidateQueries({ queryKey: ["auction", id] }); queryClient.invalidateQueries({ queryKey: ["auctions"] }); },
     onError: (e) => { setConfirmRemoveBid(null); setMsg({ kind: "err", text: e instanceof Error ? e.message : "Couldn't remove that bid." }); },
   });
+  // Owner-only relist: an ended auction that didn't sell is copied into
+  // a fresh listing with a new clock. Duration and prices are prefilled
+  // from the original (when the form opens) and editable before
+  // confirming. On success the new listing opens.
+  const [showRelist, setShowRelist] = useState(false);
+  const [relistDuration, setRelistDuration] = useState("168");
+  const [relistStart, setRelistStart] = useState("");
+  const [relistReserve, setRelistReserve] = useState("");
+  const [relistBuyNow, setRelistBuyNow] = useState("");
+  const relistMut = useMutation({
+    mutationFn: () => api.relistListing({
+      listingId: id,
+      durationHours: Number(relistDuration),
+      startingPrice: Number(relistStart),
+      reservePrice: relistReserve ? Number(relistReserve) : 0,
+      buyNowPrice: relistBuyNow ? Number(relistBuyNow) : 0,
+    }),
+    onSuccess: (r) => {
+      setShowRelist(false);
+      queryClient.invalidateQueries({ queryKey: ["auctions"] });
+      if (onOpenListing) onOpenListing(r.id);
+      else window.location.href = `/listing/${r.id}`;
+    },
+    onError: (e) => setMsg({ kind: "err", text: e instanceof Error ? e.message : "Couldn't relist — try again." }),
+  });
 
   if (detail.isPending) return <div className="p-6 text-center text-[var(--dim)]">Loading auction…</div>;
   if (detail.error || !detail.data) return <div className="p-6 text-center"><p className="text-[var(--danger)]">Couldn't load this auction.</p><button type="button" onClick={onClose} className="mt-3 underline">Back to auctions</button></div>;
@@ -378,7 +403,62 @@ function DetailView({ id, now, onClose, onNotFound, depositReturn }: { id: numbe
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-[var(--dim)] mt-1">{listing.bidCount === 0 ? "No bids — this one didn't sell. The seller can relist it." : listing.reservePrice != null && !listing.reserveMet ? `High bid was ${money(price)} but the reserve wasn't met — no sale, and no fees are owed.` : `Winner: ${listing.highBidder} at ${money(price)}. Seller and winner arrange payment and pickup directly.`}</p>
+                <>
+                  <p className="text-sm text-[var(--dim)] mt-1">{listing.bidCount === 0 ? "No bids — this one didn't sell. Ask the site owner to relist it." : listing.reservePrice != null && !listing.reserveMet ? `High bid was ${money(price)} but the reserve wasn't met — no sale, and no fees are owed.` : `Winner: ${listing.highBidder} at ${money(price)}. Seller and winner arrange payment and pickup directly.`}</p>
+                  {ownerStatus.data?.isOwner && (
+                    <div className="mt-4">
+                      {!showRelist ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRelistStart(String(listing.startingPrice));
+                            setRelistReserve(listing.reservePrice != null ? String(listing.reservePrice) : "");
+                            setRelistBuyNow(listing.buyNowPrice != null ? String(listing.buyNowPrice) : "");
+                            setRelistDuration("168");
+                            setMsg(null);
+                            setShowRelist(true);
+                          }}
+                          className="px-6 py-2.5 rounded-xl bg-[var(--accent-strong)] text-black font-display text-xl font-bold uppercase"
+                          aria-label="Relist this car"
+                        >
+                          Relist this car
+                        </button>
+                      ) : (
+                        <form className="bg-[var(--surface)] rounded-xl p-4" onSubmit={(e: FormEvent) => { e.preventDefault(); setMsg(null); relistMut.mutate(); }}>
+                          <p className="font-semibold">Relist this car</p>
+                          <p className="text-xs text-[var(--dim)] mt-1">A fresh listing is created with the same details, photos, and seller info — and a new clock. The old listing stays here as history. Adjust the prices or length first if you want.</p>
+                          <div className="grid sm:grid-cols-2 gap-3 mt-3">
+                            <div>
+                              <label htmlFor="relist-duration" className="text-xs font-semibold uppercase tracking-widest text-[var(--dim)]">Auction length</label>
+                              <select id="relist-duration" value={relistDuration} onChange={(e) => setRelistDuration(e.target.value)} className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-3 text-base">
+                                <option value="24">1 day</option><option value="48">2 days</option><option value="72">3 days</option><option value="120">5 days</option><option value="168">7 days</option><option value="336">14 days</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label htmlFor="relist-start" className="text-xs font-semibold uppercase tracking-widest text-[var(--dim)]">Starting bid ($)</label>
+                              <input id="relist-start" type="number" inputMode="numeric" min={1} step={1} value={relistStart} onChange={(e) => setRelistStart(e.target.value)} required className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-3 text-base tabular" />
+                            </div>
+                            <div>
+                              <label htmlFor="relist-reserve" className="text-xs font-semibold uppercase tracking-widest text-[var(--dim)]">Reserve price ($) — optional</label>
+                              <input id="relist-reserve" type="number" inputMode="numeric" min={0} step={1} value={relistReserve} onChange={(e) => setRelistReserve(e.target.value)} placeholder="No reserve" className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-3 text-base tabular" />
+                            </div>
+                            <div>
+                              <label htmlFor="relist-buynow" className="text-xs font-semibold uppercase tracking-widest text-[var(--dim)]">Buy Now price ($) — optional</label>
+                              <input id="relist-buynow" type="number" inputMode="numeric" min={0} step={1} value={relistBuyNow} onChange={(e) => setRelistBuyNow(e.target.value)} placeholder="No Buy Now" className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-3 text-base tabular" />
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2 mt-4">
+                            <button type="submit" disabled={relistMut.isPending} className="px-6 py-2.5 rounded-xl bg-[var(--accent-strong)] text-black font-display text-xl font-bold uppercase disabled:opacity-50" aria-label="Confirm relist">
+                              {relistMut.isPending ? "Relisting…" : "Relist it"}
+                            </button>
+                            <button type="button" onClick={() => setShowRelist(false)} className="px-6 py-2.5 rounded-xl border-2 border-[var(--text)] font-display text-lg font-bold uppercase" aria-label="Cancel relisting">Cancel</button>
+                          </div>
+                          {msg && <p role="status" className={`mt-3 text-sm font-semibold ${msg.kind === "ok" ? "text-green-600" : "text-[var(--danger)]"}`}>{msg.text}</p>}
+                        </form>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ) : (
@@ -1337,7 +1417,7 @@ export function App() {
 
       <main className="max-w-6xl mx-auto px-4 py-4">
         {view.kind === "detail" ? (
-          <DetailView key={view.id} id={view.id} now={now} onClose={goHome} onNotFound={() => { setNotFoundNotice(true); setView({ kind: "floor" }); window.history.replaceState({}, "", "/"); }} depositReturn={depositReturn && depositReturn.listingId === view.id ? depositReturn : null} />
+          <DetailView key={view.id} id={view.id} now={now} onClose={goHome} onOpenListing={openListing} onNotFound={() => { setNotFoundNotice(true); setView({ kind: "floor" }); window.history.replaceState({}, "", "/"); }} depositReturn={depositReturn && depositReturn.listingId === view.id ? depositReturn : null} />
         ) : view.kind === "mybids" ? (
           <div>
             <button type="button" onClick={goHome} className="text-sm font-semibold underline underline-offset-4 mb-3" aria-label="Back to auctions">← Back to auctions</button>
