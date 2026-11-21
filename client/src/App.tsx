@@ -290,7 +290,7 @@ function DetailView({ id, now, onClose, onNotFound, onOpenListing, depositReturn
         window.location.href = r.checkoutUrl;
         return;
       }
-      setMsg({ kind: "ok", text: `You bought it for ${money(r.amount)}! Your invoice is on its way by email — pay it by card on Stripe. Your Messages access code is ${r.accessToken ?? "in your win message"}.` });
+      setMsg({ kind: "ok", text: `You bought it for ${money(r.amount ?? 0)}! Your invoice is on its way by email — pay it by card on Stripe. Your Messages access code is ${r.accessToken ?? "in your win message"}.` });
       queryClient.invalidateQueries({ queryKey: ["auction", id] });
       queryClient.invalidateQueries({ queryKey: ["auctions"] });
     },
@@ -752,13 +752,28 @@ function MessageCard({ m, onOpen }: { m: Message; onOpen: () => void }) {
 
 function AlertSubscriberCount() {
   const q = useQuery({ queryKey: ["alertSubscriberCount"], queryFn: () => api.alertSubscriberCount(), refetchInterval: 15000 });
+  const list = useQuery({ queryKey: ["alertSubscribers"], queryFn: () => api.alertSubscribers(), refetchInterval: 15000 });
   return (
     <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4">
       <p className="font-display text-xl font-bold uppercase">New-listing alert signups</p>
       {q.isPending ? <p className="text-sm text-[var(--dim)] mt-1">Loading…</p>
         : q.error ? <p className="text-sm text-[var(--danger)] mt-1">Couldn't load the count.</p>
         : <p className="text-sm mt-1"><strong className="font-display text-3xl">{q.data.activeCount}</strong> {q.data.activeCount === 1 ? "person" : "people"} signed up for an email when a new car is listed.{q.data.totalCount > q.data.activeCount ? ` (${q.data.totalCount - q.data.activeCount} unsubscribed.)` : ""}</p>}
-      <p className="text-xs text-[var(--dim)] mt-1">Signups don't send you any email — check this count anytime.</p>
+      {list.isPending ? <p className="text-sm text-[var(--dim)] mt-3">Loading the list…</p>
+        : list.error ? <p className="text-sm text-[var(--danger)] mt-3">Couldn't load the list.</p>
+        : list.data.subscribers.length === 0 ? <p className="text-sm text-[var(--dim)] mt-3">No signups yet.</p>
+        : (
+          <ul className="mt-3 flex flex-col gap-1.5">
+            {list.data.subscribers.map((s) => (
+              <li key={s.email} className="flex flex-wrap items-baseline gap-x-2 text-sm">
+                <span className="font-medium break-all">{s.email}</span>
+                <span className={`text-[11px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full ${s.active ? "bg-[var(--accent-strong)] text-black" : "bg-[var(--surface2)] text-[var(--dim)]"}`}>{s.active ? "Subscribed" : "Unsubscribed"}</span>
+                <span className="text-xs text-[var(--dim)]">signed up {new Date(s.createdAt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      <p className="text-xs text-[var(--dim)] mt-3">Signups don't send you any email — check this list anytime.</p>
     </div>
   );
 }

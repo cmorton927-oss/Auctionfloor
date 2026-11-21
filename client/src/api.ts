@@ -63,6 +63,7 @@ export const api = {
   ownerLogout: () => call("owner/logout", {}) as Promise<{ ok: true }>,
   subscribeAlerts: (args: { email: string }) => call("subscribeAlerts", args) as Promise<{ ok: true; alreadySubscribed: boolean }>,
   alertSubscriberCount: () => call("alertSubscriberCount", {}) as Promise<{ activeCount: number; totalCount: number }>,
+  alertSubscribers: () => call("alertSubscribers", {}) as Promise<{ subscribers: Array<{ email: string; active: boolean; createdAt: string; unsubscribedAt: string | null }> }>,
   requestBidLookup: (args: { email: string }) => call("requestBidLookup", args) as Promise<{ ok: true; retryAfterSec?: number }>,
   getMyBids: (args: { email: string; code: string }) => call("getMyBids", args) as Promise<{ bids: any[] }>,
 };

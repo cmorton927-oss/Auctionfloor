@@ -437,6 +437,19 @@ api.post("/alertSubscriberCount", requireOwner, asyncHandler(async (req, res) =>
   res.json({ activeCount: rows.filter((r) => r.active).length, totalCount: rows.length });
 }));
 
+// Owner-only: the subscriber list behind that count (newest first).
+// The per-recipient unsubscribe token is deliberately left out: it lets
+// anyone unsubscribe that address, so it must never leave the server.
+api.post("/alertSubscribers", requireOwner, asyncHandler(async (req, res) => {
+  const rows = await db.select().from(schema.alertSubscribers).orderBy(desc(schema.alertSubscribers.createdAt));
+  res.json({ subscribers: rows.map((r) => ({
+    email: r.email,
+    active: r.active,
+    createdAt: iso(r.createdAt),
+    unsubscribedAt: r.unsubscribedAt ? iso(r.unsubscribedAt) : null,
+  })) });
+}));
+
 api.post("/placeBid", asyncHandler(async (req, res) => {
   const args = parseBody(z.object({
     listingId: z.number().int().positive(),

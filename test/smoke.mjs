@@ -127,9 +127,17 @@ async function main() {
     eq(stripeAttempt.status, 503, "createStripeCheckout without key is 503");
 
     // 6. Owner setup + login, then delivery request/quote/agree.
+    // First run sets the owner up; later runs (or a shared test DB
+    // where another test already set the owner up) log in instead.
+    let ownerCookie = null;
     const setup = await post("/api/owner/setup", { email: "owner@example.com", password: "test-password-123" });
-    eq(setup.status, 200, "owner setup");
-    const ownerCookie = setup.cookie;
+    if (setup.status === 200) {
+      ownerCookie = setup.cookie;
+    } else {
+      const login = await post("/api/owner/login", { email: "owner@example.com", password: "test-password-123" });
+      eq(login.status, 200, "owner login");
+      ownerCookie = login.cookie;
+    }
     const delivery = await post("/api/requestDelivery", { accessCode: code, deliveryAddress: "100 Main St, Spencer, TN", deliveryNotes: "Gate code 1234" });
     eq(delivery.status, 200, "requestDelivery");
     eq(delivery.data.deliveryRequestedAt != null, true, "delivery requested");
